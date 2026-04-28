@@ -98,6 +98,84 @@ class LoRAFinetuner:
         model = get_peft_model(model, peft_config)
         return model, tokenizer
 
+    def train(
+        self,
+        model,
+        tokenizer,
+        prompts=None,
+        dataset=None,
+    ) -> dict:
+        """
+        Fine-tune model on adversarial prompts.
+        Returns dict with training_loss and num_steps.
+        Requires: pip install toki[hf] (peft + datasets + transformers).
+
+        Parameters
+        ----------
+        model:
+            PEFT-wrapped model from prepare_model().
+        tokenizer:
+            HF tokenizer from prepare_model().
+        prompts:
+            Optional list[str] of raw text prompts.
+        dataset:
+            Optional AdversarialDataset; takes priority over prompts.
+        """
+        try:
+            import torch
+            from transformers import Trainer, TrainingArguments, DataCollatorForLanguageModeling
+            from datasets import Dataset as HFDataset
+        except ImportError as e:
+            raise ImportError(f"Training requires toki[hf]: {e}") from e
+
+        # Collect text prompts
+        if dataset is not None:
+            texts = [p.text for p in dataset]
+        elif prompts is not None:
+            texts = prompts
+        else:
+            raise ValueError("Provide either dataset or prompts")
+
+        # Tokenize
+        def tokenize(examples):
+            return tokenizer(
+                examples["text"],
+                truncation=True,
+                max_length=self._training.max_seq_length,
+                padding="max_length",
+            )
+
+        hf_dataset = HFDataset.from_dict({"text": texts})
+        tokenized = hf_dataset.map(tokenize, batched=True, remove_columns=["text"])
+        tokenized = tokenized.map(lambda x: {"labels": x["input_ids"]}, batched=True)
+
+        training_args = TrainingArguments(
+            output_dir=self._training.output_dir,
+            num_train_epochs=self._training.num_epochs,
+            per_device_train_batch_size=self._training.batch_size,
+            learning_rate=self._training.learning_rate,
+            warmup_steps=self._training.warmup_steps,
+            save_steps=self._training.save_steps,
+            logging_steps=self._training.logging_steps,
+            fp16=self._training.fp16,
+            seed=self._training.seed,
+            no_cuda=True,  # always CPU in tests
+            report_to=[],  # no wandb/tensorboard
+        )
+
+        trainer = Trainer(
+            model=model,
+            args=training_args,
+            train_dataset=tokenized,
+            data_collator=DataCollatorForLanguageModeling(tokenizer, mlm=False),
+        )
+
+        train_result = trainer.train()
+        return {
+            "training_loss": train_result.training_loss,
+            "num_steps": train_result.global_step,
+        }
+
     def config_summary(self) -> dict:
         """Return a JSON-serialisable summary of current configuration."""
         return {

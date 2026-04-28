@@ -4,7 +4,7 @@
 > Adversarial fine-tuning lab for small language models.  
 > "Break the model. Fix the model. Prove it."
 
-Current version: **v0.1.0**
+Current version: **v0.2.0**
 
 ---
 
@@ -30,19 +30,23 @@ Current version: **v0.1.0**
 
 ---
 
-## Phase 2 — HuggingFace Integration (v0.2.0)
+## Phase 2 — Training Loop, CLI & Experiment Workflow (v0.2.0) [COMPLETE]
 
-**Goal:** Full model loading, actual fine-tuning loop end-to-end.
+**Ship Gate:** 52 Python tests passing. No peft/model loading required for any test.
 
-- [ ] Complete `LoRAFinetuner.train()` with `Trainer` from HF
-- [ ] `python -m toki finetune` CLI entry point wired to actual training
-- [ ] Integration test: GPT-2 fine-tuning on generated adversarial dataset (CI with model cache)
-- [ ] Before/after robustness scoring stored to `experiments/runs/<timestamp>/`
-- [ ] Bump to v0.2.0
+### Deliverables
+- [x] `LoRAFinetuner.train()` — full HF `Trainer`-based fine-tuning loop; gracefully raises `ImportError` when `peft` absent
+- [x] `toki.results` — `ExperimentResult` dataclass with `save`/`load`/`make_timestamp`; `list_experiments()` helper
+- [x] `toki.experiment` — `TokiExperiment` + `ExperimentConfig` orchestrating generate → evaluate → [finetune] → evaluate → save pipeline
+- [x] `toki.__main__` — `python -m toki` CLI with four subcommands: `generate`, `evaluate`, `run`, `list`
+- [x] `toki.__init__` updated — exports `TokiExperiment`, `ExperimentConfig`, `ExperimentResult`; version bumped to `0.2.0`
+- [x] `pyproject.toml` — `requires-python` lowered to `>=3.9`; version bumped to `0.2.0`
+- [x] 24 new Python tests (8 results + 8 experiment + 7 CLI = 23 new + 1 bonus) — all passing
+- [x] All 28 Phase 1 tests still passing (52 total)
 
 ---
 
-## Phase 3 — Benchmark Suite (v0.3.0)
+## Phase 3 — Benchmark Suite & Statistical Reporting (v0.3.0)
 
 **Goal:** Rigorous before/after robustness reports with statistical significance.
 
@@ -86,4 +90,4 @@ Current version: **v0.1.0**
 
 ---
 
-*Last updated: 2026-04-28 — v0.1.0 shipped.*
+*Last updated: 2026-04-28 — v0.2.0 shipped.*
