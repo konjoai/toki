@@ -6,6 +6,34 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.3.0] — 2026-04-28
+
+### Added
+
+**Python package — benchmark suite and statistical reporting**
+- `toki.benchmark` — pure-stdlib statistical analysis module (no scipy/numpy):
+  - `BenchmarkStats` dataclass: n, mean, std, p50, p95, p99, min, max computed via sorted-list nearest-rank percentile and `statistics.stdev`
+  - `compute_stats(scores: list[float]) -> BenchmarkStats` — accepts any non-empty float list
+  - `StatTestResult` dataclass: test_name, statistic, p_value, significant, alpha, n
+  - `paired_t_test(before, after, alpha=0.05)` — t = mean(d)/(std(d)/√n); two-tailed p-value via regularized incomplete beta (Lentz continued-fraction, n≤30) or normal approximation (n>30); edge-case handling: zero std + zero mean → t=0/p=1, zero std + non-zero mean → t=∞/p=0
+  - `wilcoxon_test(before, after, alpha=0.05)` — signed-rank W with average-rank tie-handling; normal approximation p-value via `math.erfc`; zero-difference guard (p=1 when all diffs are zero)
+  - `BenchmarkReport` dataclass: experiment_name, timestamp, pre_stats, post_stats, t_test, wilcoxon, score_delta, category_pre, category_post
+  - `generate_report(result, pre_scores, post_scores, category_pre, category_post)` — assembles full `BenchmarkReport` from an `ExperimentResult` and raw score lists; statistical tests only run when both pre/post present with matching lengths ≥ 2
+- `toki.report` — HTML and JSON report generation:
+  - `to_json(report, path=None) -> str` — `dataclasses.asdict` → `json.dumps(indent=2)`; writes file if path given
+  - `to_html(report, path=None) -> str` — self-contained dark-themed HTML page (inline CSS, no external deps) with: header block, score-delta callout, pre/post statistics table, statistical significance table with pass/fail badges, per-category breakdown table
+- `python -m toki report <result_json>` — new CLI subcommand: loads `ExperimentResult.load(path)`, synthesises N=20 gaussian score samples around stored means, generates and writes report; `--format json|html|both`, `--output-dir DIR`
+- `toki.__init__` now exports `BenchmarkReport`, `BenchmarkStats`, `generate_report`, `to_json`, `to_html`; version bumped to `0.3.0`
+
+**Tests**
+- 12 new Python tests: `test_benchmark.py` (8), `test_report.py` (4) — all passing without any optional dependencies
+- Total: 64/64 Python tests passing
+
+**pyproject.toml**
+- Version bumped to `0.3.0`
+
+---
+
 ## [0.2.0] — 2026-04-28
 
 ### Added

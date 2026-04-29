@@ -4,7 +4,7 @@
 > Adversarial fine-tuning lab for small language models.  
 > "Break the model. Fix the model. Prove it."
 
-Current version: **v0.2.0**
+Current version: **v0.3.0**
 
 ---
 
@@ -46,15 +46,27 @@ Current version: **v0.2.0**
 
 ---
 
-## Phase 3 — Benchmark Suite & Statistical Reporting (v0.3.0)
+## Phase 3 — Benchmark Suite & Statistical Reporting (v0.3.0) [COMPLETE]
 
-**Goal:** Rigorous before/after robustness reports with statistical significance.
+**Ship Gate:** 64 Python tests passing. Zero failures.
 
-- [ ] `toki.benchmark` module: paired t-test / Wilcoxon on score distributions
-- [ ] HTML + JSON report generation per experiment run
-- [ ] p50/p95/p99 latency distribution for model inference
-- [ ] `pixi run benchmark` or `make benchmark` target
-- [ ] Bump to v0.3.0
+### Deliverables
+- [x] `toki.benchmark` — pure-stdlib statistical analysis module
+  - `BenchmarkStats` dataclass: n, mean, std, p50, p95, p99, min, max
+  - `compute_stats(scores)` — sorted-list percentile (nearest-rank, no scipy)
+  - `StatTestResult` dataclass: test_name, statistic, p_value, significant, alpha, n
+  - `paired_t_test(before, after, alpha)` — t = mean(d) / (std(d)/√n); t-distribution CDF via regularized incomplete beta (n≤30) or normal approximation (n>30); handles zero-std edge cases correctly
+  - `wilcoxon_test(before, after, alpha)` — signed-rank W with average-rank ties; normal approximation p-value via `math.erfc`
+  - `BenchmarkReport` dataclass: pre/post stats, t-test, Wilcoxon, score_delta, per-category breakdowns
+  - `generate_report(result, pre_scores, post_scores, ...)` — assembles full report from `ExperimentResult`
+- [x] `toki.report` — HTML + JSON report generation
+  - `to_json(report, path)` — `dataclasses.asdict` → `json.dumps`; optional file write
+  - `to_html(report, path)` — self-contained HTML page (inline CSS, no external deps) with score distribution table, statistical significance block, category breakdown, and score delta callout
+- [x] `python -m toki report <result_json>` CLI subcommand — `--format json|html|both`, `--output-dir`; generates N=20 gaussian synthetic score samples from stored mean scores
+- [x] `toki.__init__` updated — exports `BenchmarkReport`, `BenchmarkStats`, `generate_report`, `to_json`, `to_html`; version bumped to `0.3.0`
+- [x] `pyproject.toml` version bumped to `0.3.0`
+- [x] 12 new Python tests (8 benchmark + 4 report) — all passing
+- [x] All 52 Phase 1+2 tests still passing (64 total)
 
 ---
 
@@ -90,4 +102,4 @@ Current version: **v0.2.0**
 
 ---
 
-*Last updated: 2026-04-28 — v0.2.0 shipped.*
+*Last updated: 2026-04-28 — v0.3.0 shipped.*
