@@ -69,6 +69,19 @@ Tōki answers:
 git clone https://github.com/yourusername/toki.git
 cd toki
 cargo build
+
+# Python core (no ML deps required for generate/evaluate/report/upload --dry-run)
+cd python && pip install -e .
+python -m toki generate --count 32 --output dataset.json
+python -m toki evaluate --dataset dataset.json
+python -m toki run --name baseline --output-dir experiments/runs
+python -m toki report experiments/runs/<ts>_baseline/result.json --format both
+
+# Publish to HuggingFace Hub (requires `pip install -e ".[hf]"`)
+python -m toki upload \
+  --dataset dataset.json \
+  --repo your-username/toki-adversarial-v1 \
+  --version 0.4.0
 ```
 
 ---

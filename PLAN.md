@@ -4,7 +4,7 @@
 > Adversarial fine-tuning lab for small language models.  
 > "Break the model. Fix the model. Prove it."
 
-Current version: **v0.3.0**
+Current version: **v0.4.0**
 
 ---
 
@@ -70,15 +70,24 @@ Current version: **v0.3.0**
 
 ---
 
-## Phase 4 — Dataset Publishing (v0.4.0)
+## Phase 4 — Dataset Publishing (v0.4.0) [COMPLETE]
 
-**Goal:** Push adversarial datasets to HuggingFace Hub with versioning.
+**Ship Gate:** 74 Python tests passing. Zero failures. Hub orchestration tested via in-process fakes — no network required.
 
-- [ ] `toki.hub` module: upload dataset to HF Hub via `datasets` library
-- [ ] Dataset card generation (auto-filled from `AdversarialDataset.stats()`)
-- [ ] Version tagging in dataset metadata
-- [ ] `toki upload --dataset path/to/dataset.json --repo user/toki-adversarial` CLI
-- [ ] Bump to v0.4.0
+### Deliverables
+- [x] `toki.hub` module: pure-stdlib card rendering + HF Hub upload orchestration
+  - `DatasetMetadata` dataclass: name, version, description, license, tags, toki_version, ISO-8601 UTC `created` timestamp
+  - `build_dataset_card(stats, metadata)` — Markdown card with YAML frontmatter; auto-fills from `AdversarialDataset.stats()`
+  - `to_hf_dataset(dataset)` — `AdversarialDataset` → `datasets.Dataset` (raises clear ImportError without `toki[hf]`)
+  - `HubUploader.upload(dataset, metadata, commit_message=None)` — orchestrates `create_repo` → `push_to_hub` → `upload_file(README.md)` via `huggingface_hub.HfApi`; supports private repos, custom commit messages, and HF token override
+  - `write_card(dataset, metadata, path)` — write the card to disk for offline review (used by `--dry-run`)
+- [x] `python -m toki upload` CLI subcommand
+  - `--dataset`, `--repo` required; `--version`, `--name`, `--description`, `--token`, `--private`, `--message` optional
+  - `--dry-run --output-card PATH` renders the card locally without contacting the Hub (no HF deps needed)
+- [x] `toki.__init__` updated — exports `DatasetMetadata`, `HubUploader`, `build_dataset_card`, `write_card`; version bumped to `0.4.0`
+- [x] `pyproject.toml` — `huggingface_hub>=0.20.0` added to `[hf]` extras; version bumped to `0.4.0`
+- [x] 10 new Python tests (9 hub + 1 CLI dry-run) — all passing
+- [x] All 64 Phase 1+2+3 tests still passing (74 total)
 
 ---
 
@@ -102,4 +111,4 @@ Current version: **v0.3.0**
 
 ---
 
-*Last updated: 2026-04-28 — v0.3.0 shipped.*
+*Last updated: 2026-05-01 — v0.4.0 shipped.*

@@ -6,6 +6,30 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.4.0] — 2026-05-01
+
+### Added
+
+**Python package — dataset publishing to HuggingFace Hub**
+- `toki.hub` — pure-stdlib card rendering plus thin orchestration over `huggingface_hub` and `datasets`:
+  - `DatasetMetadata` dataclass — `name`, `version`, `description`, `license`, `tags`, `toki_version`, ISO-8601 UTC `created` timestamp; `created` auto-fills on construction unless explicitly set
+  - `build_dataset_card(stats, metadata) -> str` — Markdown card with YAML frontmatter; auto-fills total + per-category counts from `AdversarialDataset.stats()`; handles empty datasets cleanly
+  - `to_hf_dataset(dataset)` — `AdversarialDataset` → `datasets.Dataset` with `text`, `category`, `strategy`, `seed` columns; raises a guiding `ImportError` ("requires: pip install toki[hf]") when `datasets` is unavailable
+  - `HubUploader` — orchestrates `HfApi.create_repo(repo_type="dataset", exist_ok=True)` → `Dataset.push_to_hub(...)` → `HfApi.upload_file(README.md)` for the dataset card; supports `private`, custom `token`, and overridable `commit_message`; returns a JSON-serialisable summary (`repo_id`, `dataset_version`, `toki_version`, `total_prompts`, `categories`)
+  - `write_card(dataset, metadata, path)` — write card to disk for offline review; powers `--dry-run`
+- `python -m toki upload` CLI subcommand — `--dataset PATH --repo USER/NAME` required; `--version`, `--name`, `--description`, `--token`, `--private`, `--message` optional; `--dry-run --output-card PATH` renders the card locally with zero HF imports
+- `toki.__init__` exports `DatasetMetadata`, `HubUploader`, `build_dataset_card`, `write_card`; version bumped to `0.4.0`
+
+**Tests**
+- 10 new Python tests: `test_hub.py` (9, including upload orchestration verified via in-process fakes for `huggingface_hub` and `datasets`) + `test_main.py` (1, `upload --dry-run` end-to-end)
+- Total: 74/74 Python tests passing
+
+**pyproject.toml**
+- `huggingface_hub>=0.20.0` added to `[hf]` extras
+- Version bumped to `0.4.0`
+
+---
+
 ## [0.3.0] — 2026-04-28
 
 ### Added

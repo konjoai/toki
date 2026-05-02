@@ -72,3 +72,32 @@ def test_list_command_finds_experiment(tmp_path, capsys):
 def test_unknown_command_exits():
     with pytest.raises(SystemExit):
         main(["unknown_command_xyz"])
+
+
+def test_upload_dry_run_writes_card(tmp_path, capsys):
+    """The upload --dry-run path should render a dataset card locally with no HF imports."""
+    # Build a dataset on disk
+    main([
+        "generate",
+        "--count", "3",
+        "--seed", "7",
+        "--output", str(tmp_path / "ds.json"),
+    ])
+    capsys.readouterr()
+
+    card_path = tmp_path / "CARD.md"
+    main([
+        "upload",
+        "--dataset", str(tmp_path / "ds.json"),
+        "--repo", "user/toki-adv",
+        "--version", "0.4.0",
+        "--dry-run",
+        "--output-card", str(card_path),
+    ])
+    out = capsys.readouterr().out
+    assert "[dry-run]" in out
+    assert "user/toki-adv" in out
+    assert card_path.exists()
+    text = card_path.read_text()
+    assert text.startswith("---\n")
+    assert "dataset_version: 0.4.0" in text
