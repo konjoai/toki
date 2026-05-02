@@ -74,6 +74,30 @@ def test_unknown_command_exits():
         main(["unknown_command_xyz"])
 
 
+def test_pipeline_command_runs(tmp_path, capsys):
+    main([
+        "pipeline",
+        "--name", "cli_pipeline",
+        "--seed", "5",
+        "--iterations", "2",
+        "--convergence-threshold", "0.95",
+        "--convergence-window", "2",
+        "--jailbreak-count", "2",
+        "--injection-count", "2",
+        "--boundary-count", "1",
+        "--output-dir", str(tmp_path),
+    ])
+    out = capsys.readouterr().out
+    assert "Pipeline:" in out
+    assert "cli_pipeline" in out
+    assert "Final score" in out
+    # Safe-mock baseline → converges in `window` rounds
+    assert "Converged:   True" in out
+    # Pipeline artifact written
+    found = list(Path(tmp_path).glob("*_cli_pipeline/pipeline.json"))
+    assert len(found) == 1
+
+
 def test_upload_dry_run_writes_card(tmp_path, capsys):
     """The upload --dry-run path should render a dataset card locally with no HF imports."""
     # Build a dataset on disk

@@ -1,7 +1,7 @@
 """Toki — adversarial fine-tuning lab for small LLMs."""
 from __future__ import annotations
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 
 from toki.generate import AdversarialGenerator
 from toki.evaluate import RobustnessEvaluator
@@ -11,6 +11,7 @@ from toki.results import ExperimentResult
 from toki.benchmark import BenchmarkReport, BenchmarkStats, generate_report
 from toki.report import to_json, to_html
 from toki.hub import DatasetMetadata, HubUploader, build_dataset_card, write_card
+from toki.pipeline import HardeningPipeline, PipelineConfig, PipelineResult, RoundResult
 
 __all__ = [
     "AdversarialGenerator",
@@ -28,4 +29,8 @@ __all__ = [
     "HubUploader",
     "build_dataset_card",
     "write_card",
+    "HardeningPipeline",
+    "PipelineConfig",
+    "PipelineResult",
+    "RoundResult",
 ]

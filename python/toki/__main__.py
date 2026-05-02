@@ -145,6 +145,37 @@ def cmd_report(args) -> None:
         print(f"Unknown format {fmt!r}; use --format json|html|both", file=__import__("sys").stderr)
 
 
+def cmd_pipeline(args) -> None:
+    from toki.pipeline import HardeningPipeline, PipelineConfig
+
+    cfg = PipelineConfig(
+        name=args.name,
+        model_name=args.model,
+        seed=args.seed,
+        max_iterations=args.iterations,
+        convergence_threshold=args.convergence_threshold,
+        convergence_window=args.convergence_window,
+        jailbreak_count=args.jailbreak_count,
+        injection_count=args.injection_count,
+        boundary_count=args.boundary_count,
+        output_dir=args.output_dir,
+        run_finetune=args.finetune,
+    )
+    result = HardeningPipeline(cfg).run()
+
+    print(f"\n{'=' * 60}")
+    print(f"Pipeline:    {result.name}")
+    print(f"Timestamp:   {result.timestamp}")
+    print(f"Rounds:      {len(result.rounds)} / {cfg.max_iterations}")
+    print(f"Converged:   {result.converged} ({result.stop_reason})")
+    print(f"Final score: {result.final_score:.4f}")
+    print(f"{'=' * 60}")
+    print("\nPer-round mean score:")
+    for r in result.rounds:
+        marker = "✓" if r.mean_score >= cfg.convergence_threshold else " "
+        print(f"  [{marker}] round {r.round_index:>3}  seed={r.seed:<10}  score={r.mean_score:.4f}  n={r.total_prompts}")
+
+
 def cmd_upload(args) -> None:
     from toki.dataset import AdversarialDataset
     from toki.hub import DatasetMetadata, HubUploader, write_card
@@ -213,6 +244,20 @@ def build_parser() -> argparse.ArgumentParser:
     p_list = sub.add_parser("list", help="List past experiments")
     p_list.add_argument("--dir", type=str, default="experiments/runs")
 
+    # pipeline (continuous hardening loop)
+    p_pipe = sub.add_parser("pipeline", help="Run iterative generate→evaluate→(finetune) loop until convergence")
+    p_pipe.add_argument("--name", type=str, default="hardening")
+    p_pipe.add_argument("--model", type=str, default="mock")
+    p_pipe.add_argument("--seed", type=int, default=42)
+    p_pipe.add_argument("--iterations", type=int, default=5, dest="iterations")
+    p_pipe.add_argument("--convergence-threshold", type=float, default=0.95, dest="convergence_threshold")
+    p_pipe.add_argument("--convergence-window", type=int, default=3, dest="convergence_window")
+    p_pipe.add_argument("--jailbreak-count", type=int, default=10, dest="jailbreak_count")
+    p_pipe.add_argument("--injection-count", type=int, default=10, dest="injection_count")
+    p_pipe.add_argument("--boundary-count", type=int, default=5, dest="boundary_count")
+    p_pipe.add_argument("--output-dir", type=str, default="experiments/pipelines")
+    p_pipe.add_argument("--finetune", action="store_true")
+
     # upload
     p_up = sub.add_parser("upload", help="Publish an adversarial dataset to the HuggingFace Hub")
     p_up.add_argument("--dataset", type=str, required=True, help="Path to dataset JSON")
@@ -251,6 +296,8 @@ def main(argv=None) -> None:
         cmd_report(args)
     elif args.command == "upload":
         cmd_upload(args)
+    elif args.command == "pipeline":
+        cmd_pipeline(args)
 
 
 if __name__ == "__main__":

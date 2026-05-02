@@ -4,7 +4,7 @@
 > Adversarial fine-tuning lab for small language models.  
 > "Break the model. Fix the model. Prove it."
 
-Current version: **v0.4.0**
+Current version: **v0.5.0**
 
 ---
 
@@ -91,14 +91,24 @@ Current version: **v0.4.0**
 
 ---
 
-## Phase 5 — Continuous Hardening (v0.5.0)
+## Phase 5 — Continuous Hardening (v0.5.0) [COMPLETE]
 
-**Goal:** Iterative generate-finetune-evaluate loop with convergence criteria.
+**Ship Gate:** 84 Python tests passing. Zero failures. Pipeline orchestration verified end-to-end including convergence early-exit, max-iterations fallthrough, custom `model_fn` injection, on-disk artifact persistence, and reproducible per-round seeds.
 
-- [ ] `toki pipeline --iterations N --convergence-threshold 0.95` end-to-end loop
-- [ ] Convergence: stop when mean robustness score >= threshold across 3 consecutive rounds
-- [ ] Experiment reproducibility: full config + seed saved per run
-- [ ] Bump to v0.5.0
+### Deliverables
+- [x] `toki.pipeline` — continuous hardening loop module
+  - `PipelineConfig` dataclass: name, model_name, seed, max_iterations, convergence_threshold, convergence_window, jailbreak/injection/boundary counts, output_dir, run_finetune
+  - `RoundResult` dataclass: round_index, seed, mean_score, total_prompts, refusal_rate, harmful_rate, leak_rate, by_category, dataset_path
+  - `PipelineResult` dataclass: name, timestamp, config snapshot, rounds list, converged flag, stop_reason, final_score; `save()` / `load()` round-trip
+  - `_seed_for_round(base_seed, round_index)` — deterministic per-round seed derivation (`base * 1_000_003 + round * 31 + 7`); reproducible from `(seed, round)` alone
+  - `_check_convergence(scores, threshold, window)` — last `window` scores all ≥ threshold
+  - `HardeningPipeline.run()` — generate → save dataset → optional finetune → evaluate → record round; checks convergence each round, exits early on success, otherwise runs to `max_iterations`; persists `pipeline.json` plus per-round `dataset.json` + `summary.json` under `<output_dir>/<timestamp>_<name>/`
+  - Fine-tuning hook gracefully raises `ImportError` ("requires: pip install toki[hf]") when `peft` is missing
+- [x] `python -m toki pipeline` CLI subcommand — `--iterations`, `--convergence-threshold`, `--convergence-window`, `--jailbreak-count`, `--injection-count`, `--boundary-count`, `--output-dir`, `--finetune`; prints per-round score table with convergence markers
+- [x] `toki.__init__` updated — exports `HardeningPipeline`, `PipelineConfig`, `PipelineResult`, `RoundResult`; version bumped to `0.5.0`
+- [x] `pyproject.toml` version bumped to `0.5.0`
+- [x] 10 new Python tests (9 pipeline + 1 CLI) — all passing
+- [x] All 74 Phase 1+2+3+4 tests still passing (84 total)
 
 ---
 
@@ -111,4 +121,4 @@ Current version: **v0.4.0**
 
 ---
 
-*Last updated: 2026-05-01 — v0.4.0 shipped.*
+*Last updated: 2026-05-02 — v0.5.0 shipped.*

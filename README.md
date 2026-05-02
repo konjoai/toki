@@ -77,6 +77,13 @@ python -m toki evaluate --dataset dataset.json
 python -m toki run --name baseline --output-dir experiments/runs
 python -m toki report experiments/runs/<ts>_baseline/result.json --format both
 
+# Continuous hardening loop (stops at convergence)
+python -m toki pipeline \
+  --name harden_v1 \
+  --iterations 10 \
+  --convergence-threshold 0.95 \
+  --convergence-window 3
+
 # Publish to HuggingFace Hub (requires `pip install -e ".[hf]"`)
 python -m toki upload \
   --dataset dataset.json \

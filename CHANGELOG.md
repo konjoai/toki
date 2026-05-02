@@ -6,6 +6,31 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.5.0] — 2026-05-02
+
+### Added
+
+**Python package — continuous hardening pipeline**
+- `toki.pipeline` — iterative generate → evaluate → (finetune) loop with convergence-driven early exit:
+  - `PipelineConfig` dataclass — full reproducibility surface: `name`, `model_name`, `seed`, `max_iterations`, `convergence_threshold`, `convergence_window`, jailbreak/injection/boundary counts, `output_dir`, `run_finetune`
+  - `RoundResult` dataclass — per-round telemetry: `round_index`, `seed`, `mean_score`, `total_prompts`, `refusal_rate`, `harmful_rate`, `leak_rate`, `by_category`, `dataset_path`
+  - `PipelineResult` dataclass — aggregate report: `name`, `timestamp`, full config snapshot, `rounds` list, `converged`, `stop_reason`, `final_score`; `save()` writes `pipeline.json`; `load()` reconstructs typed `RoundResult` instances
+  - `_seed_for_round(base_seed, round_index)` — deterministic per-round seed derivation (`(base * 1_000_003 + round * 31 + 7) & 0x7FFF_FFFF`); guarantees distinct prompts every round and full reproducibility from `(seed, round_index)`
+  - `_check_convergence(scores, threshold, window)` — pure-stdlib check: last `window` scores must all meet `threshold`
+  - `HardeningPipeline.run()` — orchestrates per-round generate → persist dataset → optional finetune → evaluate → record; checks convergence after each round and exits early when satisfied, else runs to `max_iterations`; persists `<output_dir>/<timestamp>_<name>/pipeline.json` plus per-round `round_NNN/dataset.json` + `round_NNN/summary.json`
+  - Fine-tuning hook raises a guiding `ImportError` ("requires: pip install toki[hf]") when `peft` is missing
+- `python -m toki pipeline` CLI subcommand — `--iterations`, `--convergence-threshold`, `--convergence-window`, `--jailbreak-count`, `--injection-count`, `--boundary-count`, `--output-dir`, `--finetune`; prints per-round table with `✓` markers for rounds meeting threshold
+- `toki.__init__` exports `HardeningPipeline`, `PipelineConfig`, `PipelineResult`, `RoundResult`; version bumped to `0.5.0`
+
+**Tests**
+- 10 new Python tests: `test_pipeline.py` (9: seed determinism, convergence window logic, max-iter fallthrough, early-exit on convergence, on-disk persistence, `PipelineResult` round-trip, custom `model_fn` injection, finetune ImportError path, full config snapshot in result) + `test_main.py` (1: `pipeline` CLI end-to-end with safe-mock convergence)
+- Total: 84/84 Python tests passing
+
+**pyproject.toml**
+- Version bumped to `0.5.0`
+
+---
+
 ## [0.4.0] — 2026-05-01
 
 ### Added
