@@ -19,3 +19,9 @@ htmlcov/
 .idea/
 .vscode/
 *.swp
+
+# Toki experiment outputs (test/local runs)
+python/experiments/
+experiments/runs/
+experiments/pipelines/
+experiments/reports/
