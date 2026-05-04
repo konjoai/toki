@@ -98,6 +98,42 @@ def test_pipeline_command_runs(tmp_path, capsys):
     assert len(found) == 1
 
 
+def test_compare_command_runs(tmp_path, capsys):
+    main([
+        "compare",
+        "--model-a", "unsafe",
+        "--model-b", "safe",
+        "--name", "cli_cmp",
+        "--seed", "13",
+        "--jailbreak-count", "3",
+        "--injection-count", "3",
+        "--boundary-count", "2",
+        "--output-dir", str(tmp_path),
+    ])
+    out = capsys.readouterr().out
+    assert "A/B Comparison" in out
+    assert "cli_cmp" in out
+    # winner line is ANSI-bold around the name
+    assert "Winner:" in out and "safe" in out.split("Winner:")[1].split("\n", 1)[0]
+    # Persisted artifact
+    found = list(Path(tmp_path).glob("*_cli_cmp/comparison.json"))
+    assert len(found) == 1
+    payload = json.loads(found[0].read_text())
+    assert payload["winner"] == "safe"
+    assert payload["model_a"]["name"] == "unsafe"
+    assert payload["model_b"]["name"] == "safe"
+
+
+def test_compare_command_rejects_bad_baseline(capsys):
+    with pytest.raises(SystemExit):
+        main(["compare", "--model-a", "totally_made_up", "--model-b", "safe"])
+
+
+def test_compare_command_rejects_same_name(capsys):
+    with pytest.raises(SystemExit):
+        main(["compare", "--model-a", "safe", "--model-b", "safe"])
+
+
 def test_upload_dry_run_writes_card(tmp_path, capsys):
     """The upload --dry-run path should render a dataset card locally with no HF imports."""
     # Build a dataset on disk

@@ -4,7 +4,7 @@
 > Adversarial fine-tuning lab for small language models.  
 > "Break the model. Fix the model. Prove it."
 
-Current version: **v0.5.0**
+Current version: **v0.6.0**
 
 ---
 
@@ -112,13 +112,35 @@ Current version: **v0.5.0**
 
 ---
 
-## Future / Backlog
+## Phase 6 — Multi-Model A/B Comparison (v0.6.0) [COMPLETE]
 
-- GGUF/GGML quantized model support (llama.cpp backend)
-- Multi-model adversarial comparison (model A vs model B)
-- Web UI for interactive prompt generation and scoring
-- Mojo-accelerated tokenization for high-throughput batch evaluation
+**Ship Gate:** 100 Python tests passing. Zero failures. A/B comparison verified end-to-end on real `RobustnessEvaluator` scores with paired t-test + Wilcoxon producing the same winner.
+
+### Deliverables
+- [x] `toki.compare` — pure-stdlib A/B comparison module
+  - `ModelSpec(name, model_fn)` — wraps any `Callable[[str], str]` (real LLM client, mock, or deterministic fake)
+  - `ComparisonConfig` — name, seed, jailbreak/injection/boundary counts, alpha, output_dir
+  - `ModelScores` — name, mean_score, refusal_rate, harmful_rate, leak_rate, by_category, raw per-prompt scores, total_prompts
+  - `ComparisonResult` — name, timestamp, config, model_a, model_b, score_delta, winner, significant flag, t_test/wilcoxon dicts, per-category winners; `save()` → `comparison.json`; `load()` round-trip with typed `ModelScores`
+  - `compare_models(a, b, config, save=False)` — runs the same generated dataset against both models, evaluates both with the real `RobustnessEvaluator`, runs `paired_t_test` + `wilcoxon_test` from `toki.benchmark`, declares winner only if at least one paired test rejects H0 at α; otherwise returns `winner="tie"`
+  - Built-in baselines: `baseline_safe`, `baseline_unsafe`, `baseline_mixed` (refuses on trigger words) — all hit real evaluator patterns; `BASELINES` registry
+  - Guardrails: distinct names enforced; per-category winners default missing categories to 0.0
+- [x] `python -m toki compare` CLI subcommand — `--model-a/--model-b` (`safe`|`unsafe`|`mixed`), `--alpha`, `--seed`, prompt counts, `--output-dir`; prints A/B summary table with t-stat + Wilcoxon + per-category winners; persists `comparison.json`
+- [x] `demo/server.py` — `POST /api/compare-models` for live web demo; uses real `compare_models` with the built-in baselines
+- [x] `toki.__init__` exports `BASELINES`, `ComparisonConfig`, `ComparisonResult`, `ModelScores`, `ModelSpec`, `compare_models`; version bumped to `0.6.0`
+- [x] `pyproject.toml` version bumped to `0.6.0`
+- [x] 16 new Python tests (13 compare + 3 CLI) — all passing
+- [x] All 84 Phase 1+2+3+4+5 tests still passing (100 total)
 
 ---
 
-*Last updated: 2026-05-02 — v0.5.0 shipped.*
+## Future / Backlog
+
+- GGUF/GGML quantized model support (llama.cpp backend)
+- Web UI for interactive prompt generation and scoring
+- Mojo-accelerated tokenization for high-throughput batch evaluation
+- Multi-model leaderboard (>2 models, ranked by paired tests with Bonferroni correction)
+
+---
+
+*Last updated: 2026-05-03 — v0.6.0 shipped.*

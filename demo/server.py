@@ -68,6 +68,12 @@ if _PY_PKG.is_dir() and str(_PY_PKG) not in sys.path:
 
 # Real toki imports — these will fail loudly if the source tree is broken.
 from toki import __version__
+from toki.compare import (
+    BASELINES,
+    ComparisonConfig,
+    ModelSpec,
+    compare_models,
+)
 from toki.dataset import AdversarialDataset
 from toki.evaluate import RobustnessEvaluator
 from toki.generate import AdversarialGenerator, AdversarialPrompt
@@ -415,6 +421,72 @@ def api_compare(body: dict) -> dict:
     }
 
 
+def api_compare_models(body: dict) -> dict:
+    """A/B compare two named built-in baselines using real toki.compare.
+
+    body: {"model_a": "safe"|"unsafe"|"mixed",
+           "model_b": "safe"|"unsafe"|"mixed",
+           "seed": 42, "size": 18, "alpha": 0.05}
+    """
+    a_name = str(body.get("model_a", "unsafe"))
+    b_name = str(body.get("model_b", "safe"))
+    if a_name not in BASELINES:
+        return {"error": f"model_a must be one of {sorted(BASELINES)}"}
+    if b_name not in BASELINES:
+        return {"error": f"model_b must be one of {sorted(BASELINES)}"}
+    if a_name == b_name:
+        return {"error": "model_a and model_b must differ"}
+
+    seed = int(body.get("seed", 42))
+    alpha = float(body.get("alpha", 0.05))
+    size = max(3, min(int(body.get("size", 18)), 60))
+    jb = max(1, size // 3)
+    inj = max(1, size // 3)
+    bnd = max(1, size - jb - inj)
+
+    started = time.perf_counter()
+    cfg = ComparisonConfig(
+        name="ab_compare", seed=seed, alpha=alpha,
+        jailbreak_count=jb, injection_count=inj, boundary_count=bnd,
+    )
+    result = compare_models(
+        ModelSpec(a_name, BASELINES[a_name]),
+        ModelSpec(b_name, BASELINES[b_name]),
+        cfg,
+    )
+    elapsed = (time.perf_counter() - started) * 1000.0
+    return {
+        "name":             result.name,
+        "winner":           result.winner,
+        "significant":      result.significant,
+        "score_delta":      round(result.score_delta, 4),
+        "model_a": {
+            "name":         result.model_a.name,
+            "mean_score":   round(result.model_a.mean_score, 4),
+            "refusal_rate": round(result.model_a.refusal_rate, 4),
+            "harmful_rate": round(result.model_a.harmful_rate, 4),
+            "leak_rate":    round(result.model_a.leak_rate, 4),
+            "by_category":  {k: round(v, 4) for k, v in result.model_a.by_category.items()},
+            "total_prompts": result.model_a.total_prompts,
+        },
+        "model_b": {
+            "name":         result.model_b.name,
+            "mean_score":   round(result.model_b.mean_score, 4),
+            "refusal_rate": round(result.model_b.refusal_rate, 4),
+            "harmful_rate": round(result.model_b.harmful_rate, 4),
+            "leak_rate":    round(result.model_b.leak_rate, 4),
+            "by_category":  {k: round(v, 4) for k, v in result.model_b.by_category.items()},
+            "total_prompts": result.model_b.total_prompts,
+        },
+        "t_test":           result.t_test,
+        "wilcoxon":         result.wilcoxon,
+        "category_winners": result.category_winners,
+        "alpha":            alpha,
+        "available_baselines": sorted(BASELINES),
+        "timing_ms":        round(elapsed, 1),
+    }
+
+
 # ---------------------------------------------------------------------------
 # HTTP plumbing
 # ---------------------------------------------------------------------------
@@ -425,6 +497,7 @@ ROUTES = {
     ("POST", "/api/run-round"):    api_run_round,
     ("POST", "/api/run-pipeline"): api_run_pipeline,
     ("POST", "/api/compare"):      api_compare,
+    ("POST", "/api/compare-models"): api_compare_models,
 }
 
 
@@ -525,6 +598,7 @@ def _banner(host: str, port: int) -> None:
     POST /api/run-round       body: {{round, max_round, seed, size}}
     POST /api/run-pipeline    body: {{max_iterations, threshold, window, seed, size}}
     POST /api/compare         body: {{prompt, round_n}}
+    POST /api/compare-models  body: {{model_a, model_b, seed, size, alpha}}
 
   Real toki modules powering every score. Ctrl-C to stop.
 

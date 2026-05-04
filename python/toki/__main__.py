@@ -145,6 +145,57 @@ def cmd_report(args) -> None:
         print(f"Unknown format {fmt!r}; use --format json|html|both", file=__import__("sys").stderr)
 
 
+def cmd_compare(args) -> None:
+    from toki.compare import (
+        BASELINES, ComparisonConfig, ModelSpec, compare_models,
+    )
+    if args.model_a not in BASELINES:
+        raise SystemExit(f"--model-a must be one of {sorted(BASELINES)}, got {args.model_a!r}")
+    if args.model_b not in BASELINES:
+        raise SystemExit(f"--model-b must be one of {sorted(BASELINES)}, got {args.model_b!r}")
+    if args.model_a == args.model_b:
+        raise SystemExit("--model-a and --model-b must differ")
+
+    cfg = ComparisonConfig(
+        name=args.name,
+        seed=args.seed,
+        jailbreak_count=args.jailbreak_count,
+        injection_count=args.injection_count,
+        boundary_count=args.boundary_count,
+        alpha=args.alpha,
+        output_dir=args.output_dir,
+    )
+    spec_a = ModelSpec(args.model_a, BASELINES[args.model_a])
+    spec_b = ModelSpec(args.model_b, BASELINES[args.model_b])
+    result = compare_models(spec_a, spec_b, cfg, save=True)
+
+    print(f"\n{'=' * 60}")
+    print(f"A/B Comparison: {result.name}   ({result.timestamp})")
+    print(f"{'=' * 60}")
+    print(f"  {spec_a.name:>10}: mean={result.model_a.mean_score:.4f}  "
+          f"refusal={result.model_a.refusal_rate:.0%}  "
+          f"harmful={result.model_a.harmful_rate:.0%}  "
+          f"leak={result.model_a.leak_rate:.0%}")
+    print(f"  {spec_b.name:>10}: mean={result.model_b.mean_score:.4f}  "
+          f"refusal={result.model_b.refusal_rate:.0%}  "
+          f"harmful={result.model_b.harmful_rate:.0%}  "
+          f"leak={result.model_b.leak_rate:.0%}")
+    print(f"  Δ (b - a): {result.score_delta:+.4f}")
+    if result.t_test:
+        marker = "✓" if result.t_test["significant"] else " "
+        print(f"  [{marker}] paired t-test: t={result.t_test['statistic']:+.3f}  "
+              f"p={result.t_test['p_value']:.4g}  α={result.t_test['alpha']}")
+    if result.wilcoxon:
+        marker = "✓" if result.wilcoxon["significant"] else " "
+        print(f"  [{marker}] wilcoxon:      W={result.wilcoxon['statistic']:.3f}  "
+              f"p={result.wilcoxon['p_value']:.4g}")
+    print(f"\n  Winner: \033[1m{result.winner}\033[0m"
+          f" ({'significant' if result.significant else 'not significant'} at α={cfg.alpha})")
+    print("\n  Per-category winners:")
+    for cat, winner in sorted(result.category_winners.items()):
+        print(f"    {cat:>10}: {winner}")
+
+
 def cmd_pipeline(args) -> None:
     from toki.pipeline import HardeningPipeline, PipelineConfig
 
@@ -244,6 +295,20 @@ def build_parser() -> argparse.ArgumentParser:
     p_list = sub.add_parser("list", help="List past experiments")
     p_list.add_argument("--dir", type=str, default="experiments/runs")
 
+    # compare (A/B model comparison)
+    p_cmp = sub.add_parser("compare", help="A/B compare two model_fns on the same adversarial dataset")
+    p_cmp.add_argument("--model-a", type=str, required=True,
+                       help="Built-in baseline name: safe | unsafe | mixed")
+    p_cmp.add_argument("--model-b", type=str, required=True,
+                       help="Built-in baseline name: safe | unsafe | mixed")
+    p_cmp.add_argument("--name", type=str, default="comparison")
+    p_cmp.add_argument("--seed", type=int, default=42)
+    p_cmp.add_argument("--alpha", type=float, default=0.05)
+    p_cmp.add_argument("--jailbreak-count", type=int, default=10, dest="jailbreak_count")
+    p_cmp.add_argument("--injection-count", type=int, default=10, dest="injection_count")
+    p_cmp.add_argument("--boundary-count", type=int, default=5,  dest="boundary_count")
+    p_cmp.add_argument("--output-dir", type=str, default="experiments/comparisons")
+
     # pipeline (continuous hardening loop)
     p_pipe = sub.add_parser("pipeline", help="Run iterative generate→evaluate→(finetune) loop until convergence")
     p_pipe.add_argument("--name", type=str, default="hardening")
@@ -298,6 +363,8 @@ def main(argv=None) -> None:
         cmd_upload(args)
     elif args.command == "pipeline":
         cmd_pipeline(args)
+    elif args.command == "compare":
+        cmd_compare(args)
 
 
 if __name__ == "__main__":

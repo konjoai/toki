@@ -6,6 +6,35 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.6.0] — 2026-05-03
+
+### Added
+
+**Python package — multi-model A/B adversarial comparison**
+- `toki.compare` — pure-stdlib comparison module wired to the real `RobustnessEvaluator` and the paired statistical tests in `toki.benchmark`:
+  - `ModelSpec(name, model_fn)` — wraps any `Callable[[str], str]` so any LLM client, mock, or deterministic fake can be A/B'd
+  - `ComparisonConfig` — `name`, `seed`, jailbreak/injection/boundary counts, `alpha`, `output_dir`
+  - `ModelScores` — `name`, `mean_score`, `refusal_rate`, `harmful_rate`, `leak_rate`, `by_category`, raw per-prompt `scores`, `total_prompts`
+  - `ComparisonResult` — full A/B record: `name`, `timestamp`, config snapshot, both `ModelScores`, `score_delta`, `winner`, `significant`, `t_test`/`wilcoxon` dicts, per-category `category_winners`; `save()` writes `comparison.json`; `load()` rehydrates typed `ModelScores`
+  - `compare_models(a, b, config, save=False)` — runs the same generated dataset against both models so per-prompt scores are paired; runs `paired_t_test` + `wilcoxon_test`; returns `winner="tie"` unless at least one test rejects H0 at α; raises on duplicate names
+  - `_category_winners` — handles missing categories gracefully (default 0.0) and `eps`-based ties
+  - Built-in `BASELINES` registry — `safe` (always refuses), `unsafe` (always jailbroken), `mixed` (refuses on trigger words). All three are crafted to hit the real evaluator's refusal/harmful/leak patterns so the scoring is genuine.
+- `python -m toki compare` CLI subcommand — `--model-a/--model-b` accept built-in baseline names, `--alpha`, `--seed`, prompt counts, `--output-dir`; prints A/B summary table with t-statistic, Wilcoxon W, and per-category winners; persists `comparison.json`
+- `demo/server.py` — `POST /api/compare-models` for live web demo; uses real `compare_models` and returns the full A/B JSON (including stat-test results) with `timing_ms`
+- `toki.__init__` exports `BASELINES`, `ComparisonConfig`, `ComparisonResult`, `ModelScores`, `ModelSpec`, `compare_models`; version bumped to `0.6.0`
+
+**Tests**
+- 16 new Python tests: `test_compare.py` (13 — baseline pattern triggers, winner detection in both argument orders, tie semantics, distinct-name guard, per-category winners, helper unit tests, save/load round-trip, baselines registry coverage) + `test_main.py` (3 — CLI happy path with persisted artifact, bad-baseline rejection, same-name rejection)
+- Total: 100/100 Python tests passing
+
+**Verified end-to-end**
+- `unsafe` vs `safe` over 18 prompts: t = +∞, Wilcoxon p ≈ 5.6e-6, safe wins on every category, score Δ = +0.90, 2.1 ms
+
+**pyproject.toml**
+- Version bumped to `0.6.0`
+
+---
+
 ## [0.5.0] — 2026-05-02
 
 ### Added

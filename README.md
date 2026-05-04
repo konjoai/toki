@@ -84,6 +84,10 @@ python -m toki pipeline \
   --convergence-threshold 0.95 \
   --convergence-window 3
 
+# A/B compare two models on the same adversarial dataset
+# (paired t-test + Wilcoxon decide the winner at α=0.05)
+python -m toki compare --model-a unsafe --model-b safe --name baseline_ab
+
 # Publish to HuggingFace Hub (requires `pip install -e ".[hf]"`)
 python -m toki upload \
   --dataset dataset.json \
