@@ -4,7 +4,7 @@
 > Adversarial fine-tuning lab for small language models.  
 > "Break the model. Fix the model. Prove it."
 
-Current version: **v0.6.0**
+Current version: **v0.7.0**
 
 ---
 
@@ -134,13 +134,35 @@ Current version: **v0.6.0**
 
 ---
 
+## Phase 7 — Multi-Model Leaderboard (v0.7.0) [COMPLETE]
+
+**Ship Gate:** 123 Python tests passing. Zero failures. Leaderboard verified end-to-end with safe/unsafe/mixed baselines; Bonferroni-corrected α applied to all k*(k-1)/2 pairs.
+
+### Deliverables
+- [x] `toki.leaderboard` — pure-stdlib multi-model leaderboard module
+  - `LeaderboardEntry(name, mean_score, n_comparisons, wins, losses, ties, rank, significant)` — per-model ranking record; `significant=True` when all wins are statistically significant after Bonferroni correction
+  - `PairResult` — raw outcome of a single head-to-head comparison: winner, t/W statistics, p-values, `alpha_bonferroni`
+  - `LeaderboardConfig` — name, seed, jailbreak/injection/boundary counts, nominal `alpha`, `output_dir`
+  - `LeaderboardResult` — full result: entries (rank-ordered), all pairs, `alpha_bonferroni`, `n_models`, `n_pairs`; `save()` raises `FileExistsError` on second call (no overwrite); `load()` rehydrates typed `LeaderboardEntry` + `PairResult`; `format_table()` returns ASCII ranked table
+  - `_bonferroni_alpha(α, n_pairs)` — `α / n_pairs`; identity when `n_pairs == 0`
+  - `_compare_pair(scores_a, scores_b, alpha_bonf)` — runs `paired_t_test` + `wilcoxon_test` at corrected threshold; declares winner only when at least one test rejects H0
+  - `_rank_entries(all_scores, pairs)` — ranks by descending mean score; ties share rank; `n_comparisons` = wins + losses + ties
+  - `Leaderboard(models, config)` — validates ≥2 models and unique names; `run(save=False)` generates one shared adversarial dataset → evaluates all models → runs all k*(k-1)/2 pairs at `alpha_bonferroni` → ranks and returns `LeaderboardResult`
+  - `_all_baseline_specs()` — convenience factory returning all three built-in `ModelSpec`s
+- [x] `python -m toki leaderboard` CLI subcommand — `--models` (one or more built-in baseline names, default: all three), `--name`, `--seed`, `--alpha`, prompt counts, `--output-dir`, `--save`; prints ASCII ranked table with Bonferroni-corrected α
+- [x] `toki.__init__` exports `Leaderboard`, `LeaderboardConfig`, `LeaderboardEntry`, `LeaderboardResult`; version bumped to `0.7.0`
+- [x] `pyproject.toml` version bumped to `0.7.0`
+- [x] 23 new Python tests: `test_leaderboard.py` (20) + `test_main.py` (3 leaderboard CLI) — all passing
+- [x] All 100 Phase 1–6 tests still passing (123 total)
+
+---
+
 ## Future / Backlog
 
 - GGUF/GGML quantized model support (llama.cpp backend)
 - Web UI for interactive prompt generation and scoring
 - Mojo-accelerated tokenization for high-throughput batch evaluation
-- Multi-model leaderboard (>2 models, ranked by paired tests with Bonferroni correction)
 
 ---
 
-*Last updated: 2026-05-03 — v0.6.0 shipped.*
+*Last updated: 2026-05-05 — v0.7.0 shipped.*

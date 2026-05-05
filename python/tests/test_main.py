@@ -134,6 +134,52 @@ def test_compare_command_rejects_same_name(capsys):
         main(["compare", "--model-a", "safe", "--model-b", "safe"])
 
 
+def test_leaderboard_command_runs(tmp_path, capsys):
+    """leaderboard subcommand with all three built-in baselines prints a ranked table."""
+    main([
+        "leaderboard",
+        "--name", "cli_lb",
+        "--seed", "7",
+        "--jailbreak-count", "3",
+        "--injection-count", "3",
+        "--boundary-count", "2",
+        "--output-dir", str(tmp_path),
+    ])
+    out = capsys.readouterr().out
+    assert "safe"   in out
+    assert "unsafe" in out
+    assert "mixed"  in out
+    # Ranked table markers
+    assert "Rank" in out or "rank" in out.lower()
+
+
+def test_leaderboard_command_save(tmp_path, capsys):
+    """--save flag persists leaderboard.json to disk."""
+    main([
+        "leaderboard",
+        "--name", "cli_lb_save",
+        "--seed", "13",
+        "--jailbreak-count", "2",
+        "--injection-count", "2",
+        "--boundary-count", "1",
+        "--output-dir", str(tmp_path),
+        "--save",
+    ])
+    capsys.readouterr()
+    found = list(Path(tmp_path).glob("*_cli_lb_save/leaderboard.json"))
+    assert len(found) == 1
+    data = json.loads(found[0].read_text())
+    assert data["name"] == "cli_lb_save"
+    assert data["n_models"] == 3
+    assert data["n_pairs"]  == 3
+
+
+def test_leaderboard_command_rejects_bad_model(capsys):
+    """Unknown model name in --models must exit with error."""
+    with pytest.raises(SystemExit):
+        main(["leaderboard", "--models", "safe", "totally_unknown"])
+
+
 def test_upload_dry_run_writes_card(tmp_path, capsys):
     """The upload --dry-run path should render a dataset card locally with no HF imports."""
     # Build a dataset on disk

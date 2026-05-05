@@ -227,6 +227,49 @@ def cmd_pipeline(args) -> None:
         print(f"  [{marker}] round {r.round_index:>3}  seed={r.seed:<10}  score={r.mean_score:.4f}  n={r.total_prompts}")
 
 
+def cmd_leaderboard(args) -> None:
+    from toki.compare import BASELINES, ModelSpec
+    from toki.leaderboard import Leaderboard, LeaderboardConfig, _all_baseline_specs
+
+    # Resolve model list: if --models provided, validate against BASELINES;
+    # otherwise default to all three built-in baselines.
+    if args.models:
+        unknown = [m for m in args.models if m not in BASELINES]
+        if unknown:
+            raise SystemExit(
+                f"Unknown model(s) {unknown!r}. "
+                f"Available built-ins: {sorted(BASELINES)}"
+            )
+        if len(args.models) < 2:
+            raise SystemExit("--models requires at least 2 model names")
+        if len(args.models) != len(set(args.models)):
+            raise SystemExit("--models entries must be unique")
+        model_specs = [ModelSpec(name, BASELINES[name]) for name in args.models]
+    else:
+        model_specs = _all_baseline_specs()
+
+    cfg = LeaderboardConfig(
+        name=args.name,
+        seed=args.seed,
+        jailbreak_count=args.jailbreak_count,
+        injection_count=args.injection_count,
+        boundary_count=args.boundary_count,
+        alpha=args.alpha,
+        output_dir=args.output_dir,
+    )
+    lb = Leaderboard(model_specs, cfg)
+    result = lb.run(save=args.save)
+
+    print(result.format_table())
+
+    if args.save:
+        # format_table already printed; confirm save location
+        out_dir = __import__("pathlib").Path(cfg.output_dir)
+        saved_path = out_dir / f"{result.timestamp}_{result.name}" / "leaderboard.json"
+        if saved_path.exists():
+            print(f"\n  Saved → {saved_path}")
+
+
 def cmd_upload(args) -> None:
     from toki.dataset import AdversarialDataset
     from toki.hub import DatasetMetadata, HubUploader, write_card
@@ -323,6 +366,26 @@ def build_parser() -> argparse.ArgumentParser:
     p_pipe.add_argument("--output-dir", type=str, default="experiments/pipelines")
     p_pipe.add_argument("--finetune", action="store_true")
 
+    # leaderboard (multi-model ranking with Bonferroni correction)
+    p_lb = sub.add_parser(
+        "leaderboard",
+        help="Rank ≥2 models on the same adversarial dataset with Bonferroni-corrected paired tests",
+    )
+    p_lb.add_argument(
+        "--models", nargs="+", default=None,
+        metavar="MODEL",
+        help="Built-in baseline names to include (default: all three — safe, unsafe, mixed)",
+    )
+    p_lb.add_argument("--name",  type=str, default="leaderboard")
+    p_lb.add_argument("--seed",  type=int, default=42)
+    p_lb.add_argument("--alpha", type=float, default=0.05,
+                      help="Nominal family-wise α before Bonferroni correction")
+    p_lb.add_argument("--jailbreak-count", type=int, default=10, dest="jailbreak_count")
+    p_lb.add_argument("--injection-count", type=int, default=10, dest="injection_count")
+    p_lb.add_argument("--boundary-count",  type=int, default=5,  dest="boundary_count")
+    p_lb.add_argument("--output-dir", type=str, default="experiments/leaderboards")
+    p_lb.add_argument("--save", action="store_true", help="Persist leaderboard.json to disk")
+
     # upload
     p_up = sub.add_parser("upload", help="Publish an adversarial dataset to the HuggingFace Hub")
     p_up.add_argument("--dataset", type=str, required=True, help="Path to dataset JSON")
@@ -365,6 +428,8 @@ def main(argv=None) -> None:
         cmd_pipeline(args)
     elif args.command == "compare":
         cmd_compare(args)
+    elif args.command == "leaderboard":
+        cmd_leaderboard(args)
 
 
 if __name__ == "__main__":

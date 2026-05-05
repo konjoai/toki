@@ -6,6 +6,35 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.7.0] — 2026-05-05
+
+### Added
+
+**Python package — multi-model adversarial leaderboard**
+- `toki.leaderboard` — pure-stdlib leaderboard module wired to the real `RobustnessEvaluator` and paired statistical tests with Bonferroni correction:
+  - `LeaderboardEntry(name, mean_score, n_comparisons, wins, losses, ties, rank, significant)` — per-model ranking record; `significant=True` when the model has ≥1 win and every win is statistically significant at the Bonferroni-corrected threshold
+  - `PairResult` — outcome of a single head-to-head comparison: winner name (or `"tie"`), t-statistic, t-p-value, W-statistic, W-p-value, `alpha_bonferroni`
+  - `LeaderboardConfig` — `name`, `seed`, jailbreak/injection/boundary counts, nominal `alpha`, `output_dir`
+  - `LeaderboardResult` — full outcome: `entries` (rank-ordered), `pairs` (all k*(k-1)/2 head-to-heads), `alpha_bonferroni`, `n_models`, `n_pairs`; `save()` raises `FileExistsError` if file already exists (no-overwrite, consistent with `ExperimentResult`); `load()` rehydrates typed `LeaderboardEntry` + `PairResult`; `format_table()` returns a clean ASCII ranked table
+  - `_bonferroni_alpha(α, n_pairs)` — α / n_pairs; returns nominal α unchanged when n_pairs == 0
+  - `_compare_pair(scores_a, scores_b, alpha_bonf)` — runs `paired_t_test` + `wilcoxon_test` at the Bonferroni-corrected threshold; declares a winner only when at least one test rejects H0
+  - `_rank_entries(all_scores, pairs)` — sorts by descending mean score (alphabetical tie-break for determinism); models with equal mean share the same rank number; n_comparisons = wins + losses + ties
+  - `Leaderboard(models, config)` — validates ≥2 models and unique names; `run(save=False)` generates one shared adversarial dataset → evaluates all models with the real `RobustnessEvaluator` → runs all k*(k-1)/2 pairs at α_bonferroni → ranks by mean score → returns `LeaderboardResult`
+  - `_all_baseline_specs()` — convenience factory returning all three built-in `ModelSpec`s (safe, unsafe, mixed) from `toki.compare.BASELINES`
+- `python -m toki leaderboard` CLI subcommand — `--models` (optional list of built-in baseline names; defaults to all three), `--name`, `--seed`, `--alpha`, `--jailbreak-count`, `--injection-count`, `--boundary-count`, `--output-dir`, `--save`; prints ASCII ranked table including Bonferroni-corrected α, per-model W/L/T tallies, and significance markers
+- `toki.__init__` exports `Leaderboard`, `LeaderboardConfig`, `LeaderboardEntry`, `LeaderboardResult`; version bumped to `0.7.0`
+
+**Tests**
+- 23 new Python tests:
+  - `test_leaderboard.py` (20) — Bonferroni formula (k=3, k=4, degenerate), `LeaderboardEntry` construction, ≥2-model guard, unique-name guard, three-model structure, safe-outranks-unsafe, corrected-α in result, `PairResult` winner semantics, `_rank_entries` ordering, shared rank on equal mean, save/load round-trip, no-overwrite guard, `format_table` completeness, `_all_baseline_specs`, `_compare_pair` corrected-alpha check, wins/losses zero-sum invariant, four-model n_pairs=6, config snapshot
+  - `test_main.py` (3) — leaderboard CLI happy path, `--save` artifact persistence, unknown-model rejection
+- Total: 123/123 Python tests passing
+
+**pyproject.toml**
+- Version bumped to `0.7.0`
+
+---
+
 ## [0.6.0] — 2026-05-03
 
 ### Added
