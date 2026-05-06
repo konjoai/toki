@@ -63,7 +63,6 @@ mod tests {
 
     #[test]
     fn test_config_save_and_load() {
-        use std::io::Write;
         let cfg = TokiConfig::default();
         let tmp = std::env::temp_dir().join("toki_test_config.json");
         let path = tmp.to_str().unwrap();
