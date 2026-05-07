@@ -277,9 +277,9 @@ def test_distill_save_no_overwrite(tmp_path, sample_individuals):
     distiller = CorpusDistiller(DistillConfig(fitness_threshold=0.4, seed=0, output_dir=str(tmp_path)))
     result = distiller.distill_from_individuals(sample_individuals, "jailbreak")
     result.save()
-    # Manually force the same timestamp for a second save attempt
+    # Same timestamp → same dir → second save must raise
     with pytest.raises(FileExistsError):
-        result.save()   # same timestamp → same dir → must raise
+        result.save()
 
 
 # ---------------------------------------------------------------------------
@@ -287,16 +287,15 @@ def test_distill_save_no_overwrite(tmp_path, sample_individuals):
 # ---------------------------------------------------------------------------
 
 def test_cli_distill_subcommand_exists():
-    """Smoke-test: the 'distill' subcommand is registered and help exits cleanly."""
+    """Smoke-test: the 'distill' subcommand is registered."""
     from toki.__main__ import build_parser
     ap = build_parser()
-    # Ensure 'distill' is a known subcommand
     choices = ap._subparsers._actions[-1].choices
     assert "distill" in choices
 
 
 def test_cli_distill_runs(tmp_path):
-    """End-to-end: generate a dataset, save it, then distill via CLI."""
+    """End-to-end: generate a dataset, save it, then distill via CLI with --save."""
     from toki.generate import AdversarialGenerator
     from toki.dataset import AdversarialDataset
     from toki.__main__ import main
@@ -314,6 +313,8 @@ def test_cli_distill_runs(tmp_path):
         "--output-dir", str(out_dir),
         "--fitness-threshold", "0.0",
         "--seed", "1",
+        "--save",
     ])
-    # Output directory must have been created with at least one run subdir
+    # --save causes DistillResult.save() to be called, creating a timestamped subdir
+    assert out_dir.exists()
     assert any(out_dir.iterdir())
