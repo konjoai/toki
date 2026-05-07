@@ -1,7 +1,7 @@
 """Toki — adversarial fine-tuning lab for small LLMs."""
 from __future__ import annotations
 
-__version__ = "0.8.0"
+__version__ = "0.9.0"
 
 from toki.generate import AdversarialGenerator
 from toki.evaluate import RobustnessEvaluator
@@ -31,6 +31,12 @@ from toki.mutator import (
     MutationConfig,
     MutationResult,
     Individual,
+)
+from toki.distill import (
+    CorpusDistiller,
+    DistillConfig,
+    DistillResult,
+    DistillStats,
 )
 
 __all__ = [
@@ -67,4 +73,8 @@ __all__ = [
     "MutationConfig",
     "MutationResult",
     "Individual",
+    "CorpusDistiller",
+    "DistillConfig",
+    "DistillResult",
+    "DistillStats",
 ]
