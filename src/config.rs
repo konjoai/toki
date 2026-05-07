@@ -32,6 +32,7 @@ impl TokiConfig {
         Ok(serde_json::from_str(&content)?)
     }
 
+    #[allow(dead_code)]
     pub fn save(&self, path: &str) -> anyhow::Result<()> {
         let content = serde_json::to_string_pretty(self)?;
         std::fs::write(path, content)?;
