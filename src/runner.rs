@@ -50,7 +50,7 @@ impl ExperimentRunner {
 
     pub fn show_config(&self) {
         let json = serde_json::to_string_pretty(&self.config).unwrap_or_default();
-        println!("{}", json);
+        println!("{json}");
     }
 }
 

@@ -20,13 +20,13 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: cargo test
-        run: cargo test --locked
+        run: cargo test
 
       - name: cargo clippy
-        run: cargo clippy --locked -- -D warnings
+        run: cargo clippy -- -D warnings
 
       - name: cargo build --release
-        run: cargo build --release --locked
+        run: cargo build --release
 
   python-test:
     name: Python — pytest

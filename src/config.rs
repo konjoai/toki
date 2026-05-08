@@ -32,6 +32,7 @@ impl TokiConfig {
         Ok(serde_json::from_str(&content)?)
     }
 
+    #[allow(dead_code)]
     pub fn save(&self, path: &str) -> anyhow::Result<()> {
         let content = serde_json::to_string_pretty(self)?;
         std::fs::write(path, content)?;
@@ -63,7 +64,6 @@ mod tests {
 
     #[test]
     fn test_config_save_and_load() {
-        use std::io::Write;
         let cfg = TokiConfig::default();
         let tmp = std::env::temp_dir().join("toki_test_config.json");
         let path = tmp.to_str().unwrap();

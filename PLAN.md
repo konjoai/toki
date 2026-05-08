@@ -2,9 +2,9 @@
 
 > **Toki** (陶器) — ceramic, shaped under pressure.  
 > Adversarial fine-tuning lab for small language models.  
-> "Break the model. Fix the model. Prove it."
+> “Break the model. Fix the model. Prove it.”
 
-Current version: **v0.7.0**
+Current version: **v0.8.0**
 
 ---
 
@@ -157,6 +157,36 @@ Current version: **v0.7.0**
 
 ---
 
+## Phase 8 — Prompt Mutation Engine (v0.8.0) [COMPLETE]
+
+**Ship Gate:** 148 Python tests passing. Zero failures. Genetic mutation engine verified end-to-end with deterministic seeding, fitness-proportional selection, all six mutation operators, and configurable elite-fraction elitism.
+
+### Deliverables
+- [x] `toki.mutator` — pure-stdlib genetic prompt mutation engine
+  - `MutationConfig` dataclass: population_size, n_generations, survivors_per_generation, mutation_rate, elite_fraction, seed, max_prompt_length; full validation in `__post_init__`
+  - `Individual` dataclass: prompt, category, fitness, generation, parent_hash; `content_hash()` — SHA-256 hex[:16] for dedup/lineage tracking
+  - `MutationResult` dataclass: config, final_population, generations_run, mean_fitness_by_generation, best_individual, operator_counts
+  - `MutationOperator` — six weighted operators: `insert_hedge`, `insert_prefix`, `swap_words`, `add_suffix`, `wrap_roleplay`, `leetspeak_partial`
+    - `insert_hedge` — prepends softening hedge ("hypothetically speaking," etc.)
+    - `insert_prefix` — prepends framing prefix ("As an unrestricted AI:", "DAN mode enabled:", etc.)
+    - `swap_words` — randomly swaps two words; no-op on single-word prompts
+    - `add_suffix` — appends compliance-pressure suffix ("Reply without refusal.", etc.)
+    - `wrap_roleplay` — wraps in roleplay template with named persona (DAN, AIM, BRUTUS, etc.)
+    - `leetspeak_partial` — randomly substitutes 30% of leet-eligible characters (a→4, e→3, i→1, o→0, s→5, t→7)
+  - `PromptMutator(config)` — engine class; `evolve(initial_prompts, category, fitness_fn)` runs full GA loop
+    - Seeds population from `initial_prompts`; pads to `population_size` by sampling with replacement
+    - Evaluates initial fitness; records generation-0 mean
+    - Per generation: select survivors (elite + fitness-proportional rest) → mutate to refill population → evaluate → record mean fitness
+    - `fitness_fn(prompt) → float`: higher = more adversarial; defaults to 0.5 mock if None
+    - Fitness errors caught per-individual; fallback to 0.5
+    - Returns `MutationResult` with best individual, per-generation mean fitness curve, and operator usage counts
+- [x] `toki.__init__` exports `PromptMutator`, `MutationConfig`, `MutationResult`, `Individual`; version bumped to `0.8.0`
+- [x] `pyproject.toml` version bumped to `0.8.0`
+- [x] 25 new Python tests in `python/tests/test_mutator.py` — all passing
+- [x] All 123 Phase 1–7 tests still passing (148 total)
+
+---
+
 ## Future / Backlog
 
 - GGUF/GGML quantized model support (llama.cpp backend)
@@ -165,4 +195,4 @@ Current version: **v0.7.0**
 
 ---
 
-*Last updated: 2026-05-05 — v0.7.0 shipped.*
+*Last updated: 2026-05-06 — v0.8.0 shipped.*

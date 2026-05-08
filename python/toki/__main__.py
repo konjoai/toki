@@ -311,6 +311,45 @@ def cmd_list(args) -> None:
         print(f"{data['timestamp']}  {data['name']}  pre={data['pre_score']:.3f}")
 
 
+def cmd_distill(args) -> None:
+    from toki.dataset import AdversarialDataset
+    from toki.distill import CorpusDistiller, DistillConfig
+
+    ds = AdversarialDataset.load(args.dataset)
+    cfg = DistillConfig(
+        fitness_threshold=args.fitness_threshold,
+        max_per_category=args.max_per_category,
+        min_prompts=args.min_prompts,
+        max_total=args.max_total,
+        seed=args.seed,
+        output_dir=args.output_dir,
+    )
+    distiller = CorpusDistiller(cfg)
+    result = distiller.distill_from_dataset(ds)
+
+    stats = result.stats
+    print(f"\n{'=' * 55}")
+    print(f"Corpus Distillation   ({result.timestamp})")
+    print(f"{'=' * 55}")
+    print(f"  Input prompts:    {stats.total_input}")
+    print(f"  Retained:         {stats.total_retained}")
+    print(f"  Retention rate:   {stats.retention_rate:.1%}")
+    print(f"  Mean fitness:     {stats.mean_fitness:.4f}")
+    print(f"  Max fitness:      {stats.max_fitness:.4f}")
+    print(f"  Categories:       {', '.join(stats.categories_covered) or '(none)'}")
+    print(f"")
+    print(f"  Per-category breakdown:")
+    for cat, n in sorted(stats.per_category.items()):
+        print(f"    {cat:>12}: {n}")
+
+    if args.save:
+        saved_dir = result.save()
+        print(f"\n  Saved → {saved_dir}")
+    elif args.output:
+        result.dataset.save(args.output)
+        print(f"\n  Corpus written to {args.output}")
+
+
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="toki", description="Adversarial fine-tuning lab")
     sub = ap.add_subparsers(dest="command", required=True)
@@ -405,6 +444,33 @@ def build_parser() -> argparse.ArgumentParser:
     p_rep.add_argument("--format", type=str, default="both", choices=["json", "html", "both"])
     p_rep.add_argument("--output-dir", type=str, default="experiments/reports")
 
+    # distill (corpus distillation)
+    p_distill = sub.add_parser(
+        "distill",
+        help="Distil a compact, high-fitness attack corpus from a dataset or mutation output",
+    )
+    p_distill.add_argument("--dataset", type=str, required=True,
+                           help="Path to adversarial dataset JSON")
+    p_distill.add_argument("--fitness-threshold", type=float, default=0.4,
+                           dest="fitness_threshold",
+                           help="Minimum fitness score to retain a prompt (default: 0.4)")
+    p_distill.add_argument("--max-per-category", type=int, default=50,
+                           dest="max_per_category",
+                           help="Maximum prompts per category (default: 50)")
+    p_distill.add_argument("--min-prompts", type=int, default=5,
+                           dest="min_prompts",
+                           help="Minimum total prompts to retain (default: 5)")
+    p_distill.add_argument("--max-total", type=int, default=500,
+                           dest="max_total",
+                           help="Hard cap on total retained prompts (default: 500)")
+    p_distill.add_argument("--seed", type=int, default=42)
+    p_distill.add_argument("--output-dir", type=str, default="experiments/distilled",
+                           dest="output_dir")
+    p_distill.add_argument("--output", type=str, default=None,
+                           help="Write distilled corpus JSON to this path")
+    p_distill.add_argument("--save", action="store_true",
+                           help="Persist full DistillResult artefacts to --output-dir")
+
     return ap
 
 
@@ -430,6 +496,8 @@ def main(argv=None) -> None:
         cmd_compare(args)
     elif args.command == "leaderboard":
         cmd_leaderboard(args)
+    elif args.command == "distill":
+        cmd_distill(args)
 
 
 if __name__ == "__main__":
