@@ -1,0 +1,31 @@
+# Render.com deploy spec for the Toki API.
+#
+# Repository:     https://render.com/docs/blueprint-spec
+# Health check:   /health (returns {"ok": true, "version": ...})
+#
+# Notes:
+#   - dockerContext is the repo root so the Dockerfile can COPY python/ + api/.
+#   - rootDir not set; render builds from the repo root.
+#   - Only the pure-stdlib core of toki is shipped — no torch/transformers.
+
+services:
+  - type: web
+    name: toki-api
+    runtime: docker
+    dockerfilePath: ./api/Dockerfile
+    dockerContext: .
+    plan: starter                    # 512 MB / 0.5 CPU — sufficient for stdlib eval
+    region: oregon
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: PORT
+        value: 8000
+      - key: TOKI_API_WORKERS
+        value: "1"
+      - key: TOKI_API_MAX_PROMPTS
+        value: "60"
+      - key: TOKI_API_MAX_CUSTOM
+        value: "100"
+      - key: TOKI_API_HTTP_TIMEOUT
+        value: "20"
