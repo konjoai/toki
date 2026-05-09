@@ -77,6 +77,12 @@ from toki.compare import (
 from toki.dataset import AdversarialDataset
 from toki.evaluate import RobustnessEvaluator
 from toki.generate import AdversarialGenerator, AdversarialPrompt
+from toki.leaderboard import (
+    KNOWN_SUITES,
+    Leaderboard,
+    LeaderboardEntry,
+    load_seed,
+)
 from toki.pipeline import (
     HardeningPipeline,
     PipelineConfig,
@@ -488,6 +494,73 @@ def api_compare_models(body: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Leaderboard — persistent SQLite-backed score tracker (T3)
+# ---------------------------------------------------------------------------
+
+# Singleton leaderboard for the lifetime of the server. The DB file lives
+# alongside the demo so it survives restarts — and so a `git status` makes
+# accidental commits visible. ``leaderboard.db`` is gitignored.
+_LEADERBOARD_DB = _HERE / "leaderboard.db"
+_SEED_PATH = _HERE / "seed_leaderboard.json"
+_LEADERBOARD_LOCK = threading.Lock()
+_LEADERBOARD: Optional[Leaderboard] = None
+
+
+def _get_leaderboard() -> Leaderboard:
+    """Lazy-init the leaderboard; auto-seed on first use if empty."""
+    global _LEADERBOARD
+    with _LEADERBOARD_LOCK:
+        if _LEADERBOARD is None:
+            _LEADERBOARD = Leaderboard(_LEADERBOARD_DB)
+            if _LEADERBOARD.count() == 0 and _SEED_PATH.exists():
+                load_seed(_LEADERBOARD, _SEED_PATH)
+        return _LEADERBOARD
+
+
+def api_leaderboard_record(body: dict) -> dict:
+    """POST /api/leaderboard — record one entry."""
+    try:
+        entry = LeaderboardEntry(
+            model_name=str(body.get("model_name", "")).strip(),
+            suite=str(body.get("suite", "")).strip(),
+            pass_rate=float(body.get("pass_rate", 0.0)),
+            robustness_score=float(body.get("robustness_score", 0.0)),
+            timestamp=str(body.get("timestamp") or ""),
+            notes=str(body.get("notes") or ""),
+        )
+    except (TypeError, ValueError) as exc:
+        return {"error": str(exc)}
+    saved = _get_leaderboard().record(entry)
+    return {"recorded": saved.to_dict()}
+
+
+def api_leaderboard_top(suite: str) -> dict:
+    """GET /api/leaderboard/{suite} — top 10 by robustness, optionally global."""
+    if suite not in KNOWN_SUITES and suite != "all":
+        return {
+            "error": f"unknown suite {suite!r}",
+            "known": list(KNOWN_SUITES) + ["all"],
+        }
+    rows = _get_leaderboard().top_n(suite, n=10)
+    return {
+        "suite":   suite,
+        "entries": [e.to_dict() for e in rows],
+        "known_suites": list(KNOWN_SUITES),
+    }
+
+
+def api_leaderboard_history(model_name: str) -> dict:
+    """GET /api/leaderboard/model/{name} — chronological history."""
+    if not model_name:
+        return {"error": "model_name required"}
+    rows = _get_leaderboard().history(model_name)
+    return {
+        "model_name": model_name,
+        "entries":    [e.to_dict() for e in rows],
+    }
+
+
+# ---------------------------------------------------------------------------
 # HTTP plumbing
 # ---------------------------------------------------------------------------
 
@@ -498,6 +571,7 @@ ROUTES = {
     ("POST", "/api/run-pipeline"): api_run_pipeline,
     ("POST", "/api/compare"):      api_compare,
     ("POST", "/api/compare-models"): api_compare_models,
+    ("POST", "/api/leaderboard"):  api_leaderboard_record,
 }
 
 
@@ -547,11 +621,33 @@ class Handler(BaseHTTPRequestHandler):
         if path in ("/", "/index.html"):
             self._file(_HERE / "index.html", "text/html; charset=utf-8")
             return
+        if path == "/leaderboard" or path == "/leaderboard.html":
+            self._file(_HERE / "leaderboard.html", "text/html; charset=utf-8")
+            return
         if path == "/demo.py":
             self._file(_HERE / "demo.py", "text/plain; charset=utf-8")
             return
         if path == "/favicon.ico":
             self.send_response(204); self._set_cors(); self.end_headers(); return
+
+        # Dynamic leaderboard routes (must precede static ROUTES lookup)
+        if path.startswith("/api/leaderboard/model/"):
+            name = path[len("/api/leaderboard/model/"):]
+            try:
+                self._json(200, api_leaderboard_history(name))
+            except Exception as exc:
+                traceback.print_exc()
+                self._json(500, {"error": str(exc)})
+            return
+        if path.startswith("/api/leaderboard/") and path != "/api/leaderboard/":
+            suite = path[len("/api/leaderboard/"):]
+            try:
+                self._json(200, api_leaderboard_top(suite))
+            except Exception as exc:
+                traceback.print_exc()
+                self._json(500, {"error": str(exc)})
+            return
+
         handler = ROUTES.get(("GET", path))
         if handler is None:
             self._json(404, {"error": f"no route for GET {path}"})
@@ -595,10 +691,13 @@ def _banner(host: str, port: int) -> None:
   Endpoints:
     GET  /api/health
     GET  /api/attacks
-    POST /api/run-round       body: {{round, max_round, seed, size}}
-    POST /api/run-pipeline    body: {{max_iterations, threshold, window, seed, size}}
-    POST /api/compare         body: {{prompt, round_n}}
-    POST /api/compare-models  body: {{model_a, model_b, seed, size, alpha}}
+    POST /api/run-round              body: {{round, max_round, seed, size}}
+    POST /api/run-pipeline           body: {{max_iterations, threshold, window, seed, size}}
+    POST /api/compare                body: {{prompt, round_n}}
+    POST /api/compare-models         body: {{model_a, model_b, seed, size, alpha}}
+    POST /api/leaderboard            body: {{model_name, suite, pass_rate, robustness_score, ...}}
+    GET  /api/leaderboard/{{suite}}    suite ∈ adversarial|paraphrase|noise|all
+    GET  /api/leaderboard/model/{{n}}  history for model n
 
   Real toki modules powering every score. Ctrl-C to stop.
 

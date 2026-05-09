@@ -1,7 +1,7 @@
 """Toki — adversarial fine-tuning lab for small LLMs."""
 from __future__ import annotations
 
-__version__ = "0.9.0"
+__version__ = "0.10.0"
 
 from toki.generate import AdversarialGenerator
 from toki.evaluate import RobustnessEvaluator
@@ -20,11 +20,15 @@ from toki.compare import (
     ModelSpec,
     compare_models,
 )
+from toki.ranking import (
+    Ranking,
+    RankingConfig,
+    RankingEntry,
+    RankingResult,
+)
 from toki.leaderboard import (
     Leaderboard,
-    LeaderboardConfig,
     LeaderboardEntry,
-    LeaderboardResult,
 )
 from toki.mutator import (
     PromptMutator,
@@ -65,10 +69,12 @@ __all__ = [
     "ModelScores",
     "ModelSpec",
     "compare_models",
+    "Ranking",
+    "RankingConfig",
+    "RankingEntry",
+    "RankingResult",
     "Leaderboard",
-    "LeaderboardConfig",
     "LeaderboardEntry",
-    "LeaderboardResult",
     "PromptMutator",
     "MutationConfig",
     "MutationResult",

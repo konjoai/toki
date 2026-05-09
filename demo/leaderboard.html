@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>toki · leaderboard</title>
+  <style>
+    :root {
+      --bg:        #0b0d10;
+      --panel:     #14171c;
+      --panel-2:   #1b1f25;
+      --line:      #262b32;
+      --fg:        #e6ebf1;
+      --fg-dim:    #8a93a3;
+      --accent:    #e4404e;       /* toki red */
+      --good:      #2ecc71;
+      --warn:      #f5b942;
+      --bad:       #e4404e;
+      --mono:      ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: var(--bg); color: var(--fg);
+                 font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    header.topbar {
+      display: flex; align-items: baseline; gap: 18px;
+      padding: 22px 28px; border-bottom: 1px solid var(--line);
+      background: linear-gradient(180deg, #0d1014 0%, #0b0d10 100%);
+    }
+    .brand { font-weight: 700; letter-spacing: 0.02em; font-size: 18px; }
+    .brand span { color: var(--accent); }
+    .subtitle { color: var(--fg-dim); font-size: 13px; }
+    .pulse {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--good); margin-right: 6px; display: inline-block;
+      box-shadow: 0 0 8px var(--good); animation: pulse 1.6s ease-in-out infinite;
+    }
+    @keyframes pulse { 50% { opacity: 0.35; } }
+    .pulse.stale { background: var(--warn); box-shadow: 0 0 8px var(--warn); }
+    .pulse.dead  { background: var(--bad);  box-shadow: 0 0 8px var(--bad); animation: none; }
+
+    main { padding: 24px 28px 80px; max-width: 1100px; margin: 0 auto; }
+
+    .tabs { display: flex; gap: 6px; margin-bottom: 16px; flex-wrap: wrap; }
+    .tab {
+      padding: 8px 14px; background: var(--panel); border: 1px solid var(--line);
+      color: var(--fg-dim); cursor: pointer; border-radius: 6px;
+      font-family: var(--mono); font-size: 13px; user-select: none;
+      transition: all 0.12s ease;
+    }
+    .tab:hover { color: var(--fg); border-color: #36404c; }
+    .tab.active {
+      color: var(--fg); background: var(--panel-2); border-color: var(--accent);
+      box-shadow: inset 0 -2px 0 var(--accent);
+    }
+
+    .meta {
+      display: flex; gap: 18px; font-family: var(--mono); font-size: 12px;
+      color: var(--fg-dim); margin-bottom: 18px; flex-wrap: wrap;
+    }
+    .meta b { color: var(--fg); font-weight: 600; }
+
+    table {
+      width: 100%; border-collapse: collapse;
+      background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+      overflow: hidden;
+    }
+    th, td { padding: 11px 14px; text-align: left; font-size: 14px; }
+    th {
+      background: var(--panel-2); color: var(--fg-dim);
+      font-weight: 500; font-size: 12px; text-transform: uppercase;
+      letter-spacing: 0.05em; border-bottom: 1px solid var(--line);
+    }
+    td { border-bottom: 1px solid var(--line); font-family: var(--mono); }
+    tr:last-child td { border-bottom: none; }
+    tr.row-flash { animation: flash 1.2s ease-out; }
+    @keyframes flash { 0% { background: rgba(228, 64, 78, 0.18); } 100% { background: transparent; } }
+
+    .rank { color: var(--fg-dim); width: 56px; }
+    .rank-1 { color: var(--warn); font-weight: 700; }
+    .model { color: var(--fg); font-weight: 500; }
+    .score {
+      font-weight: 600; font-variant-numeric: tabular-nums;
+      padding: 3px 8px; border-radius: 4px; display: inline-block; min-width: 64px;
+      text-align: center;
+    }
+    .score-good { color: #052; background: rgba(46, 204, 113, 0.15); }
+    .score-warn { color: #5a3d00; background: rgba(245, 185, 66, 0.18); }
+    .score-bad  { color: #5a0410; background: rgba(228, 64, 78, 0.18); }
+    /* on the dark background we want lighter text — override */
+    .score-good { color: var(--good); }
+    .score-warn { color: var(--warn); }
+    .score-bad  { color: var(--bad); }
+
+    .suite-pill {
+      font-size: 11px; font-family: var(--mono);
+      padding: 2px 7px; border-radius: 3px;
+      background: var(--panel-2); border: 1px solid var(--line); color: var(--fg-dim);
+    }
+    .ts { color: var(--fg-dim); font-size: 12px; }
+    .empty { padding: 28px; text-align: center; color: var(--fg-dim); font-style: italic; }
+    .err {
+      padding: 14px 18px; background: rgba(228, 64, 78, 0.08);
+      border: 1px solid rgba(228, 64, 78, 0.4); border-radius: 6px;
+      color: var(--bad); font-family: var(--mono); font-size: 13px;
+      margin-bottom: 16px;
+    }
+    footer { color: var(--fg-dim); font-size: 12px; margin-top: 24px; font-family: var(--mono); }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">陶 toki <span>· leaderboard</span></div>
+    <div class="subtitle">live model robustness — auto-refresh every 10s</div>
+    <div style="margin-left:auto; font-family: var(--mono); font-size:12px; color:var(--fg-dim);">
+      <span id="pulse" class="pulse"></span><span id="status">connecting…</span>
+    </div>
+  </header>
+
+  <main>
+    <div class="tabs" id="tabs">
+      <div class="tab active" data-suite="all">all</div>
+      <div class="tab" data-suite="adversarial">adversarial</div>
+      <div class="tab" data-suite="paraphrase">paraphrase</div>
+      <div class="tab" data-suite="noise">noise</div>
+    </div>
+
+    <div class="meta">
+      <span><b id="m-suite">all</b> · top <b>10</b> by robustness score</span>
+      <span>last refresh: <b id="m-ts">—</b></span>
+      <span>rows: <b id="m-rows">0</b></span>
+      <span>colour: <span class="score score-good">≥ 0.85</span> <span class="score score-warn">≥ 0.70</span> <span class="score score-bad">&lt; 0.70</span></span>
+    </div>
+
+    <div id="error" class="err" style="display:none;"></div>
+
+    <table aria-label="Robustness leaderboard">
+      <thead>
+        <tr>
+          <th class="rank">#</th>
+          <th>model</th>
+          <th>suite</th>
+          <th>robustness</th>
+          <th>pass-rate</th>
+          <th>last seen</th>
+          <th>notes</th>
+        </tr>
+      </thead>
+      <tbody id="rows">
+        <tr><td colspan="7" class="empty">loading…</td></tr>
+      </tbody>
+    </table>
+
+    <footer>
+      Endpoint: <code>GET /api/leaderboard/&lt;suite&gt;</code> · refreshed every 10s ·
+      <a href="/">demo home</a>
+    </footer>
+  </main>
+
+  <script>
+    const REFRESH_MS = 10_000;
+    const BASE = window.location.origin;
+
+    let activeSuite = "all";
+    let lastIds = new Set();
+    let consecutiveErrors = 0;
+
+    function classifyScore(s) {
+      if (s >= 0.85) return "score-good";
+      if (s >= 0.70) return "score-warn";
+      return "score-bad";
+    }
+
+    function fmtTimestamp(ts) {
+      if (!ts) return "—";
+      // Trim seconds + tz for compact display
+      return ts.replace("T", " ").replace(/(\+00:00|Z)$/, "");
+    }
+
+    function renderRows(entries) {
+      const tbody = document.getElementById("rows");
+      if (!entries || entries.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" class="empty">no entries for this suite yet — POST /api/leaderboard to seed</td></tr>';
+        lastIds = new Set();
+        return;
+      }
+      const newIds = new Set(entries.map(e => e.id));
+      const html = entries.map((e, i) => {
+        const cls = classifyScore(e.robustness_score);
+        const rankCls = i === 0 ? "rank rank-1" : "rank";
+        const flash = !lastIds.has(e.id) && lastIds.size > 0 ? " row-flash" : "";
+        return `<tr class="${flash.trim()}">
+          <td class="${rankCls}">${i + 1}</td>
+          <td class="model">${escapeHtml(e.model_name)}</td>
+          <td><span class="suite-pill">${escapeHtml(e.suite)}</span></td>
+          <td><span class="score ${cls}">${e.robustness_score.toFixed(3)}</span></td>
+          <td>${e.pass_rate.toFixed(3)}</td>
+          <td class="ts">${fmtTimestamp(e.timestamp)}</td>
+          <td class="ts">${escapeHtml(e.notes || "")}</td>
+        </tr>`;
+      }).join("");
+      tbody.innerHTML = html;
+      lastIds = newIds;
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, c => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+      }[c]));
+    }
+
+    async function refresh() {
+      const url = `${BASE}/api/leaderboard/${encodeURIComponent(activeSuite)}`;
+      try {
+        const res = await fetch(url, { cache: "no-store" });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        if (data.error) throw new Error(data.error);
+
+        document.getElementById("error").style.display = "none";
+        document.getElementById("m-suite").textContent = data.suite ?? activeSuite;
+        document.getElementById("m-rows").textContent = (data.entries || []).length;
+        document.getElementById("m-ts").textContent = new Date().toLocaleTimeString();
+        renderRows(data.entries || []);
+
+        consecutiveErrors = 0;
+        const pulse = document.getElementById("pulse");
+        pulse.className = "pulse";
+        document.getElementById("status").textContent = "live";
+      } catch (err) {
+        consecutiveErrors += 1;
+        const errBox = document.getElementById("error");
+        errBox.textContent = `Fetch failed: ${err.message} (server at ${BASE} reachable?)`;
+        errBox.style.display = "block";
+        const pulse = document.getElementById("pulse");
+        pulse.className = consecutiveErrors > 2 ? "pulse dead" : "pulse stale";
+        document.getElementById("status").textContent = consecutiveErrors > 2 ? "offline" : "stale";
+      }
+    }
+
+    function setSuite(s) {
+      if (s === activeSuite) return;
+      activeSuite = s;
+      lastIds = new Set();   // cancel flash on tab switch
+      document.querySelectorAll(".tab").forEach(t => {
+        t.classList.toggle("active", t.dataset.suite === s);
+      });
+      refresh();
+    }
+
+    document.getElementById("tabs").addEventListener("click", (e) => {
+      const t = e.target.closest(".tab");
+      if (t) setSuite(t.dataset.suite);
+    });
+
+    refresh();
+    setInterval(refresh, REFRESH_MS);
+  </script>
+</body>
+</html>

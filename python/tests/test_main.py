@@ -134,10 +134,10 @@ def test_compare_command_rejects_same_name(capsys):
         main(["compare", "--model-a", "safe", "--model-b", "safe"])
 
 
-def test_leaderboard_command_runs(tmp_path, capsys):
-    """leaderboard subcommand with all three built-in baselines prints a ranked table."""
+def test_rank_command_runs(tmp_path, capsys):
+    """rank subcommand with all three built-in baselines prints a ranked table."""
     main([
-        "leaderboard",
+        "rank",
         "--name", "cli_lb",
         "--seed", "7",
         "--jailbreak-count", "3",
@@ -153,10 +153,10 @@ def test_leaderboard_command_runs(tmp_path, capsys):
     assert "Rank" in out or "rank" in out.lower()
 
 
-def test_leaderboard_command_save(tmp_path, capsys):
-    """--save flag persists leaderboard.json to disk."""
+def test_rank_command_save(tmp_path, capsys):
+    """--save flag persists ranking.json to disk."""
     main([
-        "leaderboard",
+        "rank",
         "--name", "cli_lb_save",
         "--seed", "13",
         "--jailbreak-count", "2",
@@ -166,7 +166,7 @@ def test_leaderboard_command_save(tmp_path, capsys):
         "--save",
     ])
     capsys.readouterr()
-    found = list(Path(tmp_path).glob("*_cli_lb_save/leaderboard.json"))
+    found = list(Path(tmp_path).glob("*_cli_lb_save/ranking.json"))
     assert len(found) == 1
     data = json.loads(found[0].read_text())
     assert data["name"] == "cli_lb_save"
@@ -174,10 +174,10 @@ def test_leaderboard_command_save(tmp_path, capsys):
     assert data["n_pairs"]  == 3
 
 
-def test_leaderboard_command_rejects_bad_model(capsys):
+def test_rank_command_rejects_bad_model(capsys):
     """Unknown model name in --models must exit with error."""
     with pytest.raises(SystemExit):
-        main(["leaderboard", "--models", "safe", "totally_unknown"])
+        main(["rank", "--models", "safe", "totally_unknown"])
 
 
 def test_upload_dry_run_writes_card(tmp_path, capsys):

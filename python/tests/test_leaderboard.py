@@ -1,371 +1,212 @@
-"""Tests for toki.leaderboard — multi-model adversarial leaderboard."""
+"""Tests for toki.leaderboard — persistent SQLite-backed leaderboard."""
 from __future__ import annotations
 
 import json
-import math
 from pathlib import Path
 
 import pytest
 
-from toki.compare import BASELINES, ModelSpec, baseline_mixed, baseline_safe, baseline_unsafe
 from toki.leaderboard import (
+    KNOWN_SUITES,
     Leaderboard,
-    LeaderboardConfig,
     LeaderboardEntry,
-    LeaderboardResult,
-    PairResult,
-    _bonferroni_alpha,
-    _compare_pair,
-    _rank_entries,
-    _all_baseline_specs,
+    load_seed,
 )
-from toki.compare import ModelScores
 
 
 # ---------------------------------------------------------------------------
-# Helpers
+# Fixtures
 # ---------------------------------------------------------------------------
 
-def _small_cfg(**kw) -> LeaderboardConfig:
-    """Return a tiny LeaderboardConfig for fast tests."""
-    defaults = dict(
-        name="test_lb",
-        seed=7,
-        jailbreak_count=3,
-        injection_count=3,
-        boundary_count=2,
-    )
-    defaults.update(kw)
-    return LeaderboardConfig(**defaults)
+@pytest.fixture
+def lb(tmp_path: Path) -> Leaderboard:
+    return Leaderboard(tmp_path / "lb.db")
 
 
-def _make_scores(name: str, mean: float, scores: list | None = None) -> ModelScores:
-    if scores is None:
-        scores = [mean] * 10
-    return ModelScores(
-        name=name,
-        mean_score=mean,
-        refusal_rate=0.0,
-        harmful_rate=0.0,
-        leak_rate=0.0,
-        by_category={},
-        scores=scores,
-        total_prompts=len(scores),
-    )
-
-
-SAFE   = ModelSpec("safe",   baseline_safe)
-UNSAFE = ModelSpec("unsafe", baseline_unsafe)
-MIXED  = ModelSpec("mixed",  baseline_mixed)
-
-
-# ---------------------------------------------------------------------------
-# Test 1: Bonferroni correction formula
-# ---------------------------------------------------------------------------
-
-def test_bonferroni_alpha_k3():
-    """For k=3 models: n_pairs = 3, α_bonf = α/3."""
-    k = 3
-    n_pairs = k * (k - 1) // 2   # = 3
-    result = _bonferroni_alpha(0.05, n_pairs)
-    assert result == pytest.approx(0.05 / 3)
-
-
-def test_bonferroni_alpha_k4():
-    """For k=4 models: n_pairs = 6, α_bonf = α/6."""
-    k = 4
-    n_pairs = k * (k - 1) // 2   # = 6
-    result = _bonferroni_alpha(0.05, n_pairs)
-    assert result == pytest.approx(0.05 / 6)
-
-
-def test_bonferroni_alpha_zero_pairs():
-    """If n_pairs == 0 (degenerate), returns nominal alpha unchanged."""
-    assert _bonferroni_alpha(0.05, 0) == pytest.approx(0.05)
-
-
-# ---------------------------------------------------------------------------
-# Test 4: LeaderboardEntry dataclass construction
-# ---------------------------------------------------------------------------
-
-def test_leaderboard_entry_fields():
-    entry = LeaderboardEntry(
-        name="safe",
-        mean_score=0.95,
-        n_comparisons=2,
-        wins=2,
-        losses=0,
-        ties=0,
-        rank=1,
-        significant=True,
-    )
-    assert entry.rank == 1
-    assert entry.name == "safe"
-    assert entry.significant is True
-
-
-# ---------------------------------------------------------------------------
-# Test 5: Leaderboard requires ≥ 2 models
-# ---------------------------------------------------------------------------
-
-def test_leaderboard_requires_two_models():
-    with pytest.raises(ValueError, match="at least 2 models"):
-        Leaderboard([SAFE])
-
-
-# ---------------------------------------------------------------------------
-# Test 6: Leaderboard requires unique model names
-# ---------------------------------------------------------------------------
-
-def test_leaderboard_requires_unique_names():
-    dup = ModelSpec("safe", baseline_unsafe)   # same name, different fn
-    with pytest.raises(ValueError, match="unique"):
-        Leaderboard([SAFE, dup])
-
-
-# ---------------------------------------------------------------------------
-# Test 7: Three-model leaderboard — structure
-# ---------------------------------------------------------------------------
-
-def test_three_model_leaderboard_structure():
-    """k=3 → 3 pairs, 3 entries, all ranks ∈ {1,2,3}."""
-    cfg = _small_cfg()
-    lb = Leaderboard([SAFE, UNSAFE, MIXED], cfg)
-    result = lb.run()
-
-    assert result.n_models == 3
-    assert result.n_pairs  == 3                 # 3*(3-1)//2
-    assert len(result.entries) == 3
-    assert len(result.pairs)   == 3
-    ranks = {e.rank for e in result.entries}
-    assert ranks.issubset({1, 2, 3})
-
-
-# ---------------------------------------------------------------------------
-# Test 8: Safe model ranks #1 above unsafe
-# ---------------------------------------------------------------------------
-
-def test_safe_outranks_unsafe():
-    """safe model (high refusal → high score) must rank above unsafe (harmful → low score)."""
-    cfg = _small_cfg()
-    lb = Leaderboard([SAFE, UNSAFE, MIXED], cfg)
-    result = lb.run()
-
-    by_name = {e.name: e for e in result.entries}
-    assert by_name["safe"].rank < by_name["unsafe"].rank, (
-        f"safe rank={by_name['safe'].rank} should be < unsafe rank={by_name['unsafe'].rank}"
+def _entry(model: str, suite: str, score: float, **kw) -> LeaderboardEntry:
+    return LeaderboardEntry(
+        model_name=model,
+        suite=suite,
+        pass_rate=kw.get("pass_rate", score),
+        robustness_score=score,
+        timestamp=kw.get("timestamp", ""),
+        notes=kw.get("notes", ""),
     )
 
 
 # ---------------------------------------------------------------------------
-# Test 9: Bonferroni alpha stored in result
+# Test 1: schema auto-creation + empty reads
 # ---------------------------------------------------------------------------
 
-def test_bonferroni_alpha_in_result():
-    """Result must carry the corrected alpha = nominal / n_pairs."""
-    cfg = _small_cfg(alpha=0.05)
-    lb = Leaderboard([SAFE, UNSAFE, MIXED], cfg)
-    result = lb.run()
-
-    expected = 0.05 / 3   # 3 pairs for k=3
-    assert result.alpha_bonferroni == pytest.approx(expected)
+def test_fresh_db_is_empty(lb: Leaderboard):
+    """Schema is created on first use; an empty DB returns nothing."""
+    assert lb.count() == 0
+    assert lb.top_n("adversarial") == []
+    assert lb.history("any-model") == []
 
 
 # ---------------------------------------------------------------------------
-# Test 10: PairResult winner semantics
+# Test 2: record() round-trips a row and stamps an id
 # ---------------------------------------------------------------------------
 
-def test_pair_result_winner_semantics():
-    """safe vs unsafe → safe wins; alpha_bonferroni stored in pair."""
-    cfg = _small_cfg()
-    lb = Leaderboard([SAFE, UNSAFE], cfg)
-    result = lb.run()
+def test_record_round_trip(lb: Leaderboard):
+    e = _entry("phi-3", "adversarial", 0.87)
+    out = lb.record(e)
 
-    assert len(result.pairs) == 1
-    pair = result.pairs[0]
-    assert pair.winner in {"safe", "unsafe", "tie"}
-    assert pair.alpha_bonferroni == pytest.approx(result.alpha_bonferroni)
-    # safe has higher mean than unsafe, winner should be safe (or tie if not sig)
-    if pair.significant:
-        assert pair.winner == "safe"
+    assert out.id is not None and out.id > 0
+    assert lb.count() == 1
+    rows = lb.all()
+    assert len(rows) == 1
+    assert rows[0].model_name == "phi-3"
+    assert rows[0].suite == "adversarial"
+    assert rows[0].robustness_score == pytest.approx(0.87)
+    assert rows[0].timestamp != ""           # auto-stamped
 
 
 # ---------------------------------------------------------------------------
-# Test 11: _rank_entries with synthetic scores
+# Test 3: top_n is sorted by robustness_score DESC and capped at n
 # ---------------------------------------------------------------------------
 
-def test_rank_entries_ordering():
-    """Higher mean score → lower rank number (rank 1 = safest)."""
-    a = _make_scores("alpha",  0.90)
-    b = _make_scores("beta",   0.50)
-    c = _make_scores("gamma",  0.70)
-    all_scores = {"alpha": a, "beta": b, "gamma": c}
+def test_top_n_sorted_and_capped(lb: Leaderboard):
+    for s in [0.10, 0.95, 0.50, 0.80, 0.30]:
+        lb.record(_entry(f"m_{s}", "adversarial", s))
 
-    # Build fake pairs where all are ties (significant=False)
-    pairs = [
-        PairResult("alpha", "beta",  0.90, 0.50, "tie", False, 0, 1, 0, 1, 0.05),
-        PairResult("alpha", "gamma", 0.90, 0.70, "tie", False, 0, 1, 0, 1, 0.05),
-        PairResult("beta",  "gamma", 0.50, 0.70, "tie", False, 0, 1, 0, 1, 0.05),
+    top3 = lb.top_n("adversarial", n=3)
+    assert len(top3) == 3
+    scores = [e.robustness_score for e in top3]
+    assert scores == sorted(scores, reverse=True)
+    assert scores[0] == pytest.approx(0.95)
+
+
+# ---------------------------------------------------------------------------
+# Test 4: top_n filters by suite
+# ---------------------------------------------------------------------------
+
+def test_top_n_filters_by_suite(lb: Leaderboard):
+    lb.record(_entry("m1", "adversarial", 0.99))
+    lb.record(_entry("m2", "paraphrase",  0.90))
+    lb.record(_entry("m3", "noise",       0.80))
+
+    adv = lb.top_n("adversarial", n=10)
+    para = lb.top_n("paraphrase", n=10)
+    noi = lb.top_n("noise", n=10)
+    assert [e.model_name for e in adv]  == ["m1"]
+    assert [e.model_name for e in para] == ["m2"]
+    assert [e.model_name for e in noi]  == ["m3"]
+
+
+# ---------------------------------------------------------------------------
+# Test 5: top_n("all") drops the suite filter
+# ---------------------------------------------------------------------------
+
+def test_top_n_all_returns_global_ranking(lb: Leaderboard):
+    lb.record(_entry("m1", "adversarial", 0.40))
+    lb.record(_entry("m2", "paraphrase",  0.95))
+    lb.record(_entry("m3", "noise",       0.70))
+
+    rows = lb.top_n("all", n=10)
+    assert [e.model_name for e in rows] == ["m2", "m3", "m1"]
+
+
+# ---------------------------------------------------------------------------
+# Test 6: history is chronological per model
+# ---------------------------------------------------------------------------
+
+def test_history_chronological(lb: Leaderboard):
+    lb.record(_entry("phi-3", "adversarial", 0.5, timestamp="2026-01-01T00:00:00+00:00"))
+    lb.record(_entry("phi-3", "adversarial", 0.7, timestamp="2026-02-01T00:00:00+00:00"))
+    lb.record(_entry("phi-3", "noise",       0.6, timestamp="2026-01-15T00:00:00+00:00"))
+    lb.record(_entry("other", "adversarial", 0.9, timestamp="2026-03-01T00:00:00+00:00"))
+
+    hist = lb.history("phi-3")
+    assert [e.timestamp for e in hist] == [
+        "2026-01-01T00:00:00+00:00",
+        "2026-01-15T00:00:00+00:00",
+        "2026-02-01T00:00:00+00:00",
     ]
-    entries = _rank_entries(all_scores, pairs)
-    by_name = {e.name: e for e in entries}
-    assert by_name["alpha"].rank == 1
-    assert by_name["gamma"].rank == 2
-    assert by_name["beta"].rank  == 3
+    # Confirm no leakage from "other"
+    assert all(e.model_name == "phi-3" for e in hist)
 
 
 # ---------------------------------------------------------------------------
-# Test 12: _rank_entries tie in mean score shares rank
+# Test 7: compare() picks the latest-per-suite for each model + names a winner
 # ---------------------------------------------------------------------------
 
-def test_rank_entries_shared_rank_on_equal_mean():
-    """Two models with identical mean scores share the same rank."""
-    a = _make_scores("a", 0.80, [0.8] * 10)
-    b = _make_scores("b", 0.80, [0.8] * 10)
-    c = _make_scores("c", 0.50, [0.5] * 10)
-    all_scores = {"a": a, "b": b, "c": c}
-    pairs = [
-        PairResult("a", "b", 0.80, 0.80, "tie", False, 0, 1, 0, 1, 0.05),
-        PairResult("a", "c", 0.80, 0.50, "a",   True,  5, 0, 5, 0, 0.05),
-        PairResult("b", "c", 0.80, 0.50, "b",   True,  5, 0, 5, 0, 0.05),
+def test_compare_uses_latest_per_suite(lb: Leaderboard):
+    # phi-3 — older-then-newer adversarial; only-paraphrase
+    lb.record(_entry("phi-3", "adversarial", 0.40, timestamp="2026-01-01T00:00:00+00:00"))
+    lb.record(_entry("phi-3", "adversarial", 0.90, timestamp="2026-02-01T00:00:00+00:00"))
+    lb.record(_entry("phi-3", "paraphrase",  0.85, timestamp="2026-02-01T00:00:00+00:00"))
+    # qwen — only-adversarial (lower)
+    lb.record(_entry("qwen",  "adversarial", 0.60, timestamp="2026-02-15T00:00:00+00:00"))
+
+    diff = lb.compare("phi-3", "qwen")
+
+    adv = diff["by_suite"]["adversarial"]
+    assert adv["a"]["robustness_score"] == pytest.approx(0.90)   # latest, not 0.40
+    assert adv["b"]["robustness_score"] == pytest.approx(0.60)
+    assert adv["delta"] == pytest.approx(0.30)
+
+    # paraphrase only on phi-3 → b is None and delta is None
+    para = diff["by_suite"]["paraphrase"]
+    assert para["a"] is not None
+    assert para["b"] is None
+    assert para["delta"] is None
+
+    # winner is the model with higher mean over overlapping suites (only adversarial)
+    assert diff["winner"] == "phi-3"
+
+
+# ---------------------------------------------------------------------------
+# Test 8: validation — score outside [0, 1] is rejected
+# ---------------------------------------------------------------------------
+
+def test_score_out_of_range_rejected():
+    with pytest.raises(ValueError, match="robustness_score"):
+        LeaderboardEntry("m", "adversarial", pass_rate=0.5, robustness_score=1.5)
+    with pytest.raises(ValueError, match="pass_rate"):
+        LeaderboardEntry("m", "adversarial", pass_rate=-0.01, robustness_score=0.5)
+    with pytest.raises(ValueError, match="model_name"):
+        LeaderboardEntry("", "adversarial", pass_rate=0.5, robustness_score=0.5)
+
+
+# ---------------------------------------------------------------------------
+# Test 9: load_seed inserts every entry from a JSON file
+# ---------------------------------------------------------------------------
+
+def test_load_seed(tmp_path: Path, lb: Leaderboard):
+    seed = [
+        {"model_name": "phi-3",  "suite": "adversarial", "pass_rate": 0.91,
+         "robustness_score": 0.87, "timestamp": "2026-04-01T00:00:00+00:00",
+         "notes": "phase-9 baseline"},
+        {"model_name": "qwen",   "suite": "noise",       "pass_rate": 0.55,
+         "robustness_score": 0.61, "timestamp": "2026-04-02T00:00:00+00:00"},
     ]
-    entries = _rank_entries(all_scores, pairs)
-    by_name = {e.name: e for e in entries}
-    # a and b share rank 1 (same mean), c gets rank 3
-    assert by_name["a"].rank == by_name["b"].rank == 1
-    assert by_name["c"].rank == 3
+    seed_path = tmp_path / "seed.json"
+    seed_path.write_text(json.dumps(seed))
+    n = load_seed(lb, seed_path)
+    assert n == 2
+    assert lb.count() == 2
+    # Ensure notes round-trip even when omitted
+    qwen = lb.history("qwen")[0]
+    assert qwen.notes == ""
 
 
 # ---------------------------------------------------------------------------
-# Test 13: Save / load round-trip
+# Test 10: persistence across instances + KNOWN_SUITES surface check
 # ---------------------------------------------------------------------------
 
-def test_save_and_load_round_trip(tmp_path):
-    cfg = _small_cfg(name="persistence_test", output_dir=str(tmp_path))
-    lb = Leaderboard([SAFE, UNSAFE, MIXED], cfg)
-    result = lb.run(save=True)
+def test_persists_across_instances_and_known_suites(tmp_path: Path):
+    db = tmp_path / "persist.db"
+    lb1 = Leaderboard(db)
+    lb1.record(_entry("phi-3", "adversarial", 0.8))
+    lb1.close()
 
-    out = tmp_path / f"{result.timestamp}_persistence_test" / "leaderboard.json"
-    assert out.exists()
+    lb2 = Leaderboard(db)
+    rows = lb2.all()
+    assert len(rows) == 1
+    assert rows[0].model_name == "phi-3"
+    lb2.close()
 
-    loaded = LeaderboardResult.load(out)
-    assert loaded.name == result.name
-    assert loaded.n_models == result.n_models
-    assert loaded.n_pairs  == result.n_pairs
-    assert loaded.alpha_bonferroni == pytest.approx(result.alpha_bonferroni)
-    assert len(loaded.entries) == len(result.entries)
-    assert len(loaded.pairs)   == len(result.pairs)
-    assert isinstance(loaded.entries[0], LeaderboardEntry)
-    assert isinstance(loaded.pairs[0],   PairResult)
-    # Spot-check winner stability
-    assert loaded.entries[0].name == result.entries[0].name
-    assert loaded.entries[0].rank == result.entries[0].rank
-
-
-# ---------------------------------------------------------------------------
-# Test 14: save() raises FileExistsError on second call (no overwrite)
-# ---------------------------------------------------------------------------
-
-def test_save_no_overwrite(tmp_path):
-    cfg = _small_cfg(name="no_overwrite", output_dir=str(tmp_path))
-    lb = Leaderboard([SAFE, UNSAFE], cfg)
-    result = lb.run(save=True)
-
-    with pytest.raises(FileExistsError):
-        result.save(str(tmp_path))
-
-
-# ---------------------------------------------------------------------------
-# Test 15: format_table output contains expected fields
-# ---------------------------------------------------------------------------
-
-def test_format_table_contains_all_models():
-    cfg = _small_cfg()
-    result = Leaderboard([SAFE, UNSAFE, MIXED], cfg).run()
-    table = result.format_table()
-    for model_name in ("safe", "unsafe", "mixed"):
-        assert model_name in table, f"{model_name} missing from leaderboard table"
-    # Check header-like markers
-    assert "Rank" in table or "rank" in table.lower()
-    assert "Bonferroni" in table or "bonf" in table.lower()
-
-
-# ---------------------------------------------------------------------------
-# Test 16: All-baseline specs helper
-# ---------------------------------------------------------------------------
-
-def test_all_baseline_specs():
-    specs = _all_baseline_specs()
-    assert len(specs) == len(BASELINES)
-    names = {s.name for s in specs}
-    assert names == set(BASELINES.keys())
-    for spec in specs:
-        # Each spec's fn is callable and returns a string
-        out = spec.model_fn("some prompt")
-        assert isinstance(out, str)
-
-
-# ---------------------------------------------------------------------------
-# Test 17: _compare_pair uses Bonferroni-corrected alpha
-# ---------------------------------------------------------------------------
-
-def test_compare_pair_uses_corrected_alpha():
-    """The alpha stored in pair.alpha_bonferroni must be the corrected value."""
-    a = _make_scores("safe",   0.95, [1.0] * 20)
-    b = _make_scores("unsafe", 0.05, [0.0] * 20)
-    alpha_bonf = 0.05 / 6  # simulating k=4 (6 pairs)
-    pair = _compare_pair(a, b, alpha_bonf)
-    assert pair.alpha_bonferroni == pytest.approx(alpha_bonf)
-    # perfect separation → significant
-    assert pair.significant is True
-    assert pair.winner == "safe"
-
-
-# ---------------------------------------------------------------------------
-# Test 18: wins/losses tally is consistent across all entries
-# ---------------------------------------------------------------------------
-
-def test_wins_losses_consistent(tmp_path):
-    """Total wins across all entries must equal total losses (zero-sum)."""
-    cfg = _small_cfg()
-    result = Leaderboard([SAFE, UNSAFE, MIXED], cfg).run()
-    total_wins   = sum(e.wins   for e in result.entries)
-    total_losses = sum(e.losses for e in result.entries)
-    assert total_wins == total_losses
-
-
-# ---------------------------------------------------------------------------
-# Test 19: Four-model leaderboard — n_pairs = 6
-# ---------------------------------------------------------------------------
-
-def test_four_model_n_pairs():
-    """k=4 → 4*(4-1)//2 = 6 pairs."""
-    def _fn(suffix: str):
-        return lambda _p: f"response_{suffix}"
-
-    models = [
-        ModelSpec("m1", _fn("1")),
-        ModelSpec("m2", _fn("2")),
-        ModelSpec("m3", _fn("3")),
-        ModelSpec("safe", baseline_safe),
-    ]
-    cfg = _small_cfg(name="four_models")
-    lb = Leaderboard(models, cfg)
-    result = lb.run()
-    assert result.n_pairs  == 6
-    assert result.n_models == 4
-    assert len(result.pairs) == 6
-
-
-# ---------------------------------------------------------------------------
-# Test 20: Leaderboard result config snapshot
-# ---------------------------------------------------------------------------
-
-def test_leaderboard_result_config_snapshot():
-    """The config dict inside LeaderboardResult must round-trip to LeaderboardConfig."""
-    cfg = _small_cfg(alpha=0.01, name="cfg_snapshot")
-    result = Leaderboard([SAFE, UNSAFE], cfg).run()
-    snap = result.config
-    assert snap["alpha"] == pytest.approx(0.01)
-    assert snap["name"]  == "cfg_snapshot"
-    assert snap["seed"]  == 7
+    # The known-suite tuple is the public contract for the API/UI tabs
+    assert KNOWN_SUITES == ("adversarial", "paraphrase", "noise")

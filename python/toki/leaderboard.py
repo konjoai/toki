@@ -1,401 +1,345 @@
 """
-Multi-model adversarial leaderboard.
+Persistent SQLite-backed leaderboard for model robustness scores over time.
 
-Runs all-pairs (round-robin) comparisons across k ≥ 2 models, applies
-Bonferroni correction to the per-pair significance threshold, and ranks
-models by mean safety score with asterisk markers for statistically
-significant placement.
+Phase 10 (T3). Tracks (model_name, suite, pass_rate, robustness_score,
+timestamp, notes) tuples across runs so the dashboard can render a
+"who's safest right now" view and a per-model history curve.
 
-Mathematical foundation
------------------------
-For k models there are k*(k-1)/2 unique unordered pairs.  The family-wise
-error rate (FWER) under the null is controlled by dividing the nominal α
-by the number of comparisons (Bonferroni):
-
-    α_bonferroni = α / (k * (k-1) / 2)
-
-Each pair is evaluated with the paired t-test + Wilcoxon signed-rank
-test from :mod:`toki.benchmark`.  A pair comparison is considered
-significant when at least one of the two tests rejects H0 at α_bonferroni.
-
-Ranking: models are sorted by descending mean score.  Rank is 1-indexed.
-A model's ``significant`` flag is ``True`` when every pairwise comparison
-involving that model that the leaderboard considers "won" is statistically
-significant after Bonferroni correction.
-
-Pure-stdlib core — no torch / transformers / numpy / scipy required.
-The model callables can be any ``str → str`` function: real LLM clients,
-mocks, or deterministic fakes.
+Design notes
+------------
+* Pure stdlib — ``sqlite3`` only. No SQLAlchemy, no migration framework.
+  Schema is created on first use; later columns can be added with
+  idempotent ``ALTER TABLE … ADD COLUMN IF NOT EXISTS`` (sqlite ≥ 3.35).
+* ``Leaderboard`` is the public class; it owns one connection per
+  instance and serialises writes through the SQLite library's
+  built-in locking.
+* ``robustness_score`` is in [0, 1]; ``pass_rate`` in [0, 1].  Values
+  outside the unit interval are rejected at the boundary because the
+  rest of toki guarantees the same range and silent corruption here
+  would let a bad seed pollute the table.
+* ``timestamp`` defaults to ``datetime.utcnow().isoformat(timespec="seconds")``
+  so callers can omit it; passing one explicitly (e.g., for seeding)
+  is preserved verbatim.
 """
 from __future__ import annotations
 
-import json
-import statistics
+import sqlite3
 from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Tuple
-
-from toki.benchmark import paired_t_test, wilcoxon_test
-from toki.compare import (
-    BASELINES,
-    ModelSpec,
-    ModelScores,
-    _category_winners,
-    _evaluate_model,
-)
-from toki.dataset import AdversarialDataset
-from toki.generate import AdversarialGenerator
-from toki.results import ExperimentResult
+from typing import Iterable, List, Optional, Sequence, Union
 
 
 # ---------------------------------------------------------------------------
-# Data classes
+# Constants
+# ---------------------------------------------------------------------------
+
+#: Suites the API/UI know about today.  ``"all"`` is *not* a real suite —
+#: it is reserved for the GET filter and never written.
+KNOWN_SUITES: tuple[str, ...] = ("adversarial", "paraphrase", "noise")
+
+_SCHEMA = """
+CREATE TABLE IF NOT EXISTS leaderboard (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    model_name        TEXT    NOT NULL,
+    suite             TEXT    NOT NULL,
+    pass_rate         REAL    NOT NULL,
+    robustness_score  REAL    NOT NULL,
+    timestamp         TEXT    NOT NULL,
+    notes             TEXT    NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_leaderboard_suite      ON leaderboard(suite);
+CREATE INDEX IF NOT EXISTS idx_leaderboard_model      ON leaderboard(model_name);
+CREATE INDEX IF NOT EXISTS idx_leaderboard_timestamp  ON leaderboard(timestamp);
+"""
+
+
+# ---------------------------------------------------------------------------
+# Data class
 # ---------------------------------------------------------------------------
 
 @dataclass
 class LeaderboardEntry:
-    """A single model's position in the leaderboard."""
+    """One row in the leaderboard.
 
-    name: str
-    mean_score: float
-    n_comparisons: int           # number of head-to-head pairs this model is in
-    wins: int                    # pairwise wins (higher mean, significant)
-    losses: int                  # pairwise losses
-    ties: int                    # pairwise ties (non-significant or equal mean)
-    rank: int                    # 1-indexed, 1 = safest
-    significant: bool            # all wins are statistically significant after Bonferroni
-
-
-@dataclass
-class PairResult:
-    """Raw outcome of a single head-to-head comparison."""
-
-    name_a: str
-    name_b: str
-    mean_a: float
-    mean_b: float
-    winner: str             # name_a, name_b, or "tie"
-    significant: bool       # at least one paired test rejects H0 at α_bonferroni
-    t_stat: float
-    t_p_value: float
-    w_stat: float
-    w_p_value: float
-    alpha_bonferroni: float
-
-
-@dataclass
-class LeaderboardConfig:
-    """Configuration for a leaderboard run."""
-
-    name: str = "leaderboard"
-    seed: int = 42
-    jailbreak_count: int = 10
-    injection_count: int = 10
-    boundary_count: int = 5
-    alpha: float = 0.05         # nominal family-wise α before Bonferroni correction
-    output_dir: str = "experiments/leaderboards"
-
-
-@dataclass
-class LeaderboardResult:
-    """Full leaderboard result — rankings, all pairwise outcomes, config snapshot."""
-
-    name: str
-    timestamp: str
-    config: dict
-    entries: List[LeaderboardEntry]          # ordered by rank (ascending)
-    pairs: List[PairResult]                  # all k*(k-1)/2 pair comparisons
-    alpha_bonferroni: float                  # corrected significance threshold
-    n_models: int
-    n_pairs: int
-
-    # ------------------------------------------------------------------
-    # Persistence
-    # ------------------------------------------------------------------
-
-    def save(self, base_dir: Optional[str] = None) -> Path:
-        """Persist to ``<base_dir>/<timestamp>_<name>/leaderboard.json``.
-
-        Raises :exc:`FileExistsError` if the output file already exists
-        (consistent with ExperimentResult.save() semantics — never overwrite).
-        """
-        out_dir = Path(base_dir or self.config.get("output_dir", "experiments/leaderboards"))
-        run_dir = out_dir / f"{self.timestamp}_{self.name}"
-        run_dir.mkdir(parents=True, exist_ok=True)
-        out = run_dir / "leaderboard.json"
-        if out.exists():
-            raise FileExistsError(f"Leaderboard result already exists at {out}")
-        out.write_text(json.dumps(asdict(self), indent=2))
-        return out
-
-    @classmethod
-    def load(cls, path) -> "LeaderboardResult":
-        """Load from a previously saved ``leaderboard.json``."""
-        data = json.loads(Path(path).read_text())
-        data["entries"] = [LeaderboardEntry(**e) for e in data["entries"]]
-        data["pairs"]   = [PairResult(**p)       for p in data["pairs"]]
-        return cls(**data)
-
-    # ------------------------------------------------------------------
-    # Display
-    # ------------------------------------------------------------------
-
-    def format_table(self) -> str:
-        """Return a human-readable leaderboard table (ASCII, no external deps)."""
-        lines: List[str] = []
-        sep = "-" * 72
-        lines.append(sep)
-        lines.append(
-            f"  Leaderboard: {self.name}   ({self.timestamp})"
-        )
-        lines.append(
-            f"  Models: {self.n_models}   Pairs: {self.n_pairs}   "
-            f"α_bonf = {self.alpha_bonferroni:.4g}"
-        )
-        lines.append(sep)
-        header = (
-            f"  {'Rank':>4}  {'Model':>14}  {'Mean':>6}  "
-            f"{'W':>3}{'L':>3}{'T':>3}  {'Sig?':>5}"
-        )
-        lines.append(header)
-        lines.append(sep)
-        for e in self.entries:
-            sig_marker = "*" if e.significant else " "
-            lines.append(
-                f"  {e.rank:>4}  {e.name:>14}  {e.mean_score:>6.4f}  "
-                f"{e.wins:>3}{e.losses:>3}{e.ties:>3}  {sig_marker:>5}"
-            )
-        lines.append(sep)
-        lines.append("  * = all pairwise wins significant after Bonferroni correction")
-        return "\n".join(lines)
-
-
-# ---------------------------------------------------------------------------
-# Internal helpers
-# ---------------------------------------------------------------------------
-
-def _bonferroni_alpha(nominal_alpha: float, n_pairs: int) -> float:
-    """α_bonferroni = α / n_pairs.  Returns nominal α if n_pairs == 0."""
-    if n_pairs == 0:
-        return nominal_alpha
-    return nominal_alpha / n_pairs
-
-
-def _compare_pair(
-    scores_a: ModelScores,
-    scores_b: ModelScores,
-    alpha_bonf: float,
-) -> PairResult:
-    """Run paired t-test + Wilcoxon on two pre-computed :class:`ModelScores`.
-
-    The significance decision uses ``alpha_bonf`` (already corrected).
+    ``id`` is filled in after :meth:`Leaderboard.record`; it is ``None`` for
+    in-memory entries that haven't been persisted yet.
     """
-    raw_a = scores_a.scores
-    raw_b = scores_b.scores
 
-    # Paired tests require n >= 2 and matching lengths
-    if len(raw_a) >= 2 and len(raw_a) == len(raw_b):
-        t_res = paired_t_test(raw_a, raw_b, alpha=alpha_bonf)
-        w_res = wilcoxon_test(raw_a, raw_b, alpha=alpha_bonf)
-    else:
-        # Degenerate case — no statistical tests possible; treat as tie
-        from toki.benchmark import StatTestResult
-        t_res = StatTestResult("paired_t_test", 0.0, 1.0, False, alpha_bonf, len(raw_a))
-        w_res = StatTestResult("wilcoxon",      0.0, 1.0, False, alpha_bonf, len(raw_a))
+    model_name: str
+    suite: str
+    pass_rate: float
+    robustness_score: float
+    timestamp: str = field(default="")
+    notes: str = ""
+    id: Optional[int] = None
 
-    significant = t_res.significant or w_res.significant
-    eps = 1e-9
-    delta = scores_b.mean_score - scores_a.mean_score
-    if not significant or abs(delta) < eps:
-        winner = "tie"
-    else:
-        winner = scores_b.name if delta > 0 else scores_a.name
-
-    return PairResult(
-        name_a=scores_a.name,
-        name_b=scores_b.name,
-        mean_a=scores_a.mean_score,
-        mean_b=scores_b.mean_score,
-        winner=winner,
-        significant=significant,
-        t_stat=t_res.statistic,
-        t_p_value=t_res.p_value,
-        w_stat=w_res.statistic,
-        w_p_value=w_res.p_value,
-        alpha_bonferroni=alpha_bonf,
-    )
-
-
-def _rank_entries(
-    all_scores: Dict[str, ModelScores],
-    pairs: List[PairResult],
-) -> List[LeaderboardEntry]:
-    """Build :class:`LeaderboardEntry` objects and assign 1-indexed ranks.
-
-    Ranking criterion: descending mean score (higher = safer).
-    Ties in mean score share the same rank; the next rank is bumped.
-
-    A model's ``significant`` flag is True when it has ≥ 1 win and every
-    one of its wins is statistically significant at the Bonferroni-corrected
-    threshold.
-    """
-    # Tally wins / losses / ties per model
-    wins:   Dict[str, int] = {n: 0 for n in all_scores}
-    losses: Dict[str, int] = {n: 0 for n in all_scores}
-    ties:   Dict[str, int] = {n: 0 for n in all_scores}
-    # Track whether every win for each model was significant
-    win_all_sig: Dict[str, bool] = {n: True for n in all_scores}
-
-    for pair in pairs:
-        if pair.winner == "tie":
-            ties[pair.name_a] += 1
-            ties[pair.name_b] += 1
-        elif pair.winner == pair.name_a:
-            wins[pair.name_a]   += 1
-            losses[pair.name_b] += 1
-            if not pair.significant:
-                win_all_sig[pair.name_a] = False
-        else:
-            wins[pair.name_b]   += 1
-            losses[pair.name_a] += 1
-            if not pair.significant:
-                win_all_sig[pair.name_b] = False
-
-    # Sort by mean score descending, stable (name as secondary key for determinism)
-    sorted_names = sorted(
-        all_scores.keys(),
-        key=lambda n: (-all_scores[n].mean_score, n),
-    )
-
-    entries: List[LeaderboardEntry] = []
-    rank = 1
-    for i, name in enumerate(sorted_names):
-        if i > 0:
-            prev = all_scores[sorted_names[i - 1]].mean_score
-            curr = all_scores[name].mean_score
-            if abs(prev - curr) > 1e-9:
-                rank = i + 1   # advance rank only when scores actually differ
-        n_cmp = wins[name] + losses[name] + ties[name]
-        has_wins = wins[name] > 0
-        entries.append(
-            LeaderboardEntry(
-                name=name,
-                mean_score=all_scores[name].mean_score,
-                n_comparisons=n_cmp,
-                wins=wins[name],
-                losses=losses[name],
-                ties=ties[name],
-                rank=rank,
-                significant=has_wins and win_all_sig[name],
+    def __post_init__(self) -> None:
+        if not self.timestamp:
+            self.timestamp = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+        # Normalise: tolerate Python booleans / ints sliding in.
+        self.pass_rate = float(self.pass_rate)
+        self.robustness_score = float(self.robustness_score)
+        if not _in_unit(self.pass_rate):
+            raise ValueError(f"pass_rate must be in [0, 1]; got {self.pass_rate!r}")
+        if not _in_unit(self.robustness_score):
+            raise ValueError(
+                f"robustness_score must be in [0, 1]; got {self.robustness_score!r}"
             )
-        )
-    return entries
+        if not self.model_name or not isinstance(self.model_name, str):
+            raise ValueError("model_name must be a non-empty string")
+        if not self.suite or not isinstance(self.suite, str):
+            raise ValueError("suite must be a non-empty string")
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+
+def _in_unit(x: float) -> bool:
+    return 0.0 <= x <= 1.0 and x == x  # rejects NaN as well
 
 
 # ---------------------------------------------------------------------------
-# Public API
+# Leaderboard
 # ---------------------------------------------------------------------------
 
 class Leaderboard:
-    """Multi-model adversarial leaderboard.
+    """Persistent SQLite-backed leaderboard.
 
     Usage::
 
-        from toki.leaderboard import Leaderboard, LeaderboardConfig
-        from toki.compare import BASELINES, ModelSpec
-
-        models = [ModelSpec(name, fn) for name, fn in BASELINES.items()]
-        cfg = LeaderboardConfig(name="demo", seed=42)
-        lb = Leaderboard(models, cfg)
-        result = lb.run(save=True)
-        print(result.format_table())
+        lb = Leaderboard("leaderboard.db")
+        lb.record(LeaderboardEntry("phi-3", "adversarial", 0.91, 0.87))
+        top  = lb.top_n("adversarial", n=10)
+        hist = lb.history("phi-3")
+        diff = lb.compare("phi-3", "qwen-2.5-1.5b")
     """
 
-    def __init__(
-        self,
-        models: List[ModelSpec],
-        config: Optional[LeaderboardConfig] = None,
-    ) -> None:
-        if len(models) < 2:
-            raise ValueError("Leaderboard requires at least 2 models")
-        names = [m.name for m in models]
-        if len(names) != len(set(names)):
-            raise ValueError(f"All model names must be unique; got: {names}")
-        self.models = models
-        self.config = config or LeaderboardConfig()
+    def __init__(self, db_path: Union[str, Path] = "leaderboard.db") -> None:
+        self.db_path = str(db_path)
+        # ``check_same_thread=False`` — the demo HTTP server is threaded;
+        # SQLite's library lock still serialises writes safely.
+        self._conn = sqlite3.connect(
+            self.db_path, check_same_thread=False, isolation_level=None
+        )
+        self._conn.row_factory = sqlite3.Row
+        self._conn.executescript(_SCHEMA)
 
-    def run(self, save: bool = False) -> LeaderboardResult:
-        """Evaluate all models on the same dataset and build the leaderboard.
+    # ------------------------------------------------------------------
+    # Writes
+    # ------------------------------------------------------------------
 
-        Steps
-        -----
-        1. Generate one adversarial dataset from ``config.seed``.
-        2. Evaluate every model against that dataset (all see the same prompts).
-        3. Compute α_bonferroni = α / (k*(k-1)/2).
-        4. Run all-pairs comparisons with the corrected threshold.
-        5. Rank by mean score; assign wins/losses/ties; mark significance.
-        6. Optionally persist to disk.
+    def record(self, entry: LeaderboardEntry) -> LeaderboardEntry:
+        """Persist a single entry.  Returns it with ``id`` populated."""
+        cur = self._conn.execute(
+            "INSERT INTO leaderboard "
+            "(model_name, suite, pass_rate, robustness_score, timestamp, notes) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                entry.model_name,
+                entry.suite,
+                entry.pass_rate,
+                entry.robustness_score,
+                entry.timestamp,
+                entry.notes,
+            ),
+        )
+        entry.id = int(cur.lastrowid) if cur.lastrowid is not None else None
+        return entry
 
-        Returns
-        -------
-        :class:`LeaderboardResult`
+    def record_many(self, entries: Iterable[LeaderboardEntry]) -> List[LeaderboardEntry]:
+        """Bulk-insert helper — used by seed-loading."""
+        return [self.record(e) for e in entries]
+
+    # ------------------------------------------------------------------
+    # Reads
+    # ------------------------------------------------------------------
+
+    def top_n(
+        self, suite: str, n: int = 10, *, include_all: bool = False,
+    ) -> List[LeaderboardEntry]:
+        """Top ``n`` rows by ``robustness_score`` (descending) for ``suite``.
+
+        If ``suite == "all"`` *or* ``include_all=True``, the suite filter
+        is dropped — useful for a global leaderboard view.
         """
-        cfg = self.config
-        timestamp = ExperimentResult.make_timestamp()
-        k = len(self.models)
-        n_pairs = k * (k - 1) // 2
-        alpha_bonf = _bonferroni_alpha(cfg.alpha, n_pairs)
+        if n <= 0:
+            return []
+        if suite == "all" or include_all:
+            rows = self._conn.execute(
+                "SELECT * FROM leaderboard "
+                "ORDER BY robustness_score DESC, timestamp DESC LIMIT ?",
+                (n,),
+            ).fetchall()
+        else:
+            rows = self._conn.execute(
+                "SELECT * FROM leaderboard WHERE suite = ? "
+                "ORDER BY robustness_score DESC, timestamp DESC LIMIT ?",
+                (suite, n),
+            ).fetchall()
+        return [_row_to_entry(r) for r in rows]
 
-        # --- 1. Shared dataset ---
-        generator = AdversarialGenerator(seed=cfg.seed)
-        dataset = AdversarialDataset()
-        dataset.add_batch(
-            generator.generate_all(
-                jailbreak_count=cfg.jailbreak_count,
-                injection_count=cfg.injection_count,
-                boundary_count=cfg.boundary_count,
-            )
-        )
+    def history(self, model_name: str, *, suite: Optional[str] = None) -> List[LeaderboardEntry]:
+        """All rows for ``model_name`` ordered chronologically (oldest first)."""
+        if suite is None:
+            rows = self._conn.execute(
+                "SELECT * FROM leaderboard WHERE model_name = ? "
+                "ORDER BY timestamp ASC",
+                (model_name,),
+            ).fetchall()
+        else:
+            rows = self._conn.execute(
+                "SELECT * FROM leaderboard WHERE model_name = ? AND suite = ? "
+                "ORDER BY timestamp ASC",
+                (model_name, suite),
+            ).fetchall()
+        return [_row_to_entry(r) for r in rows]
 
-        # --- 2. Evaluate every model ---
-        all_scores: Dict[str, ModelScores] = {}
-        for model in self.models:
-            all_scores[model.name] = _evaluate_model(model, dataset)
+    def compare(self, model_a: str, model_b: str) -> dict:
+        """Side-by-side latest-per-suite comparison of two models.
 
-        # --- 3+4. All-pairs comparisons ---
-        pairs: List[PairResult] = []
-        model_list = self.models
-        for i in range(k):
-            for j in range(i + 1, k):
-                name_i = model_list[i].name
-                name_j = model_list[j].name
-                pair = _compare_pair(all_scores[name_i], all_scores[name_j], alpha_bonf)
-                pairs.append(pair)
+        Returns a dict::
 
-        # --- 5. Rank ---
-        entries = _rank_entries(all_scores, pairs)
+            {
+              "model_a":   "phi-3",
+              "model_b":   "qwen-2.5-1.5b",
+              "by_suite": {
+                "adversarial": {
+                  "a": {pass_rate, robustness_score, timestamp} | None,
+                  "b": {...} | None,
+                  "delta": robustness_a - robustness_b   # None if either side missing
+                },
+                ...
+              },
+              "winner":    "phi-3" | "qwen-2.5-1.5b" | "tie"
+            }
 
-        result = LeaderboardResult(
-            name=cfg.name,
-            timestamp=timestamp,
-            config=asdict(cfg),
-            entries=entries,
-            pairs=pairs,
-            alpha_bonferroni=alpha_bonf,
-            n_models=k,
-            n_pairs=n_pairs,
-        )
+        Winner is determined by mean robustness across suites where both
+        models have data; "tie" if scores are within 1e-6 *or* there are
+        no overlapping suites.
+        """
+        a_latest = self._latest_per_suite(model_a)
+        b_latest = self._latest_per_suite(model_b)
+        suites = sorted(set(a_latest) | set(b_latest))
 
-        if save:
-            result.save(cfg.output_dir)
+        by_suite: dict = {}
+        a_scores: list = []
+        b_scores: list = []
+        for s in suites:
+            a = a_latest.get(s)
+            b = b_latest.get(s)
+            delta: Optional[float]
+            if a is not None and b is not None:
+                delta = a.robustness_score - b.robustness_score
+                a_scores.append(a.robustness_score)
+                b_scores.append(b.robustness_score)
+            else:
+                delta = None
+            by_suite[s] = {
+                "a": _entry_brief(a) if a else None,
+                "b": _entry_brief(b) if b else None,
+                "delta": delta,
+            }
 
-        return result
+        if not a_scores:
+            winner = "tie"
+        else:
+            mean_a = sum(a_scores) / len(a_scores)
+            mean_b = sum(b_scores) / len(b_scores)
+            if abs(mean_a - mean_b) < 1e-6:
+                winner = "tie"
+            else:
+                winner = model_a if mean_a > mean_b else model_b
+
+        return {
+            "model_a":  model_a,
+            "model_b":  model_b,
+            "by_suite": by_suite,
+            "winner":   winner,
+        }
+
+    def all(self) -> List[LeaderboardEntry]:
+        """Every row, newest-first.  Convenience for tests + dashboard."""
+        rows = self._conn.execute(
+            "SELECT * FROM leaderboard ORDER BY timestamp DESC, id DESC"
+        ).fetchall()
+        return [_row_to_entry(r) for r in rows]
+
+    def count(self) -> int:
+        """Total number of rows."""
+        return int(self._conn.execute("SELECT COUNT(*) FROM leaderboard").fetchone()[0])
+
+    # ------------------------------------------------------------------
+    # Internals
+    # ------------------------------------------------------------------
+
+    def _latest_per_suite(self, model_name: str) -> dict:
+        rows = self._conn.execute(
+            "SELECT * FROM leaderboard WHERE model_name = ? "
+            "ORDER BY timestamp DESC, id DESC",
+            (model_name,),
+        ).fetchall()
+        out: dict = {}
+        for r in rows:
+            if r["suite"] not in out:
+                out[r["suite"]] = _row_to_entry(r)
+        return out
+
+    def close(self) -> None:
+        self._conn.close()
+
+    def __enter__(self) -> "Leaderboard":
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self.close()
 
 
 # ---------------------------------------------------------------------------
-# Built-in model specs for the CLI  (mirrors BASELINES in compare.py)
+# Helpers
 # ---------------------------------------------------------------------------
 
-def _all_baseline_specs() -> List[ModelSpec]:
-    """Return one ModelSpec per built-in BASELINES entry."""
-    return [ModelSpec(name, fn) for name, fn in sorted(BASELINES.items())]
+def _row_to_entry(row: sqlite3.Row) -> LeaderboardEntry:
+    return LeaderboardEntry(
+        id=row["id"],
+        model_name=row["model_name"],
+        suite=row["suite"],
+        pass_rate=row["pass_rate"],
+        robustness_score=row["robustness_score"],
+        timestamp=row["timestamp"],
+        notes=row["notes"] or "",
+    )
+
+
+def _entry_brief(e: LeaderboardEntry) -> dict:
+    return {
+        "pass_rate":        e.pass_rate,
+        "robustness_score": e.robustness_score,
+        "timestamp":        e.timestamp,
+        "notes":            e.notes,
+    }
+
+
+def load_seed(lb: Leaderboard, seed_path: Union[str, Path]) -> int:
+    """Load a JSON file of entries into ``lb``.  Returns the count inserted.
+
+    The seed file is expected to be a JSON array of objects matching
+    :class:`LeaderboardEntry`'s fields (id is ignored if present).
+    """
+    import json
+    raw = json.loads(Path(seed_path).read_text())
+    if not isinstance(raw, list):
+        raise ValueError(f"seed file must be a JSON array; got {type(raw).__name__}")
+    entries = [
+        LeaderboardEntry(
+            model_name=item["model_name"],
+            suite=item["suite"],
+            pass_rate=float(item["pass_rate"]),
+            robustness_score=float(item["robustness_score"]),
+            timestamp=item.get("timestamp") or "",
+            notes=item.get("notes", ""),
+        )
+        for item in raw
+    ]
+    lb.record_many(entries)
+    return len(entries)
