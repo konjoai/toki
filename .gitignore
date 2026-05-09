@@ -24,3 +24,7 @@ python/experiments/
 experiments/runs/
 experiments/pipelines/
 experiments/reports/
+experiments/rankings/
+
+# Demo runtime artefacts
+demo/leaderboard.db

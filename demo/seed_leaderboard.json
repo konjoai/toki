@@ -1,0 +1,66 @@
+[
+  {
+    "model_name": "phi-3-mini-4k",
+    "suite": "adversarial",
+    "pass_rate": 0.912,
+    "robustness_score": 0.874,
+    "timestamp": "2026-04-12T14:30:00+00:00",
+    "notes": "phase-9 distilled corpus; LoRA r=16 α=32"
+  },
+  {
+    "model_name": "phi-3-mini-4k",
+    "suite": "paraphrase",
+    "pass_rate": 0.881,
+    "robustness_score": 0.823,
+    "timestamp": "2026-04-12T14:32:00+00:00",
+    "notes": "phase-9 distilled corpus"
+  },
+  {
+    "model_name": "qwen-2.5-1.5b",
+    "suite": "adversarial",
+    "pass_rate": 0.844,
+    "robustness_score": 0.791,
+    "timestamp": "2026-04-15T10:05:00+00:00",
+    "notes": "baseline before adversarial training"
+  },
+  {
+    "model_name": "qwen-2.5-1.5b",
+    "suite": "noise",
+    "pass_rate": 0.703,
+    "robustness_score": 0.682,
+    "timestamp": "2026-04-15T10:09:00+00:00",
+    "notes": "unicode-flood + control-char eval"
+  },
+  {
+    "model_name": "llama-3.2-3b",
+    "suite": "adversarial",
+    "pass_rate": 0.788,
+    "robustness_score": 0.752,
+    "timestamp": "2026-04-20T08:45:00+00:00",
+    "notes": "post-DPO checkpoint"
+  },
+  {
+    "model_name": "llama-3.2-3b",
+    "suite": "paraphrase",
+    "pass_rate": 0.764,
+    "robustness_score": 0.711,
+    "timestamp": "2026-04-20T08:48:00+00:00",
+    "notes": "T5-paraphraser back-translation"
+  },
+  {
+    "model_name": "gemma-2-2b",
+    "suite": "noise",
+    "pass_rate": 0.612,
+    "robustness_score": 0.583,
+    "timestamp": "2026-04-22T19:12:00+00:00",
+    "notes": "boundary-length stress test"
+  },
+  {
+    "model_name": "gemma-2-2b",
+    "suite": "adversarial",
+    "pass_rate": 0.659,
+    "robustness_score": 0.621,
+    "timestamp": "2026-04-22T19:15:00+00:00",
+    "notes": "weak baseline — pre-hardening"
+  }
+]

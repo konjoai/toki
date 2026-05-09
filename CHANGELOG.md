@@ -6,6 +6,39 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.10.0] — 2026-05-09
+
+### Added
+
+**Persistent SQLite-backed leaderboard (T3)**
+- `toki.leaderboard` — new module with `LeaderboardEntry(model_name, suite, pass_rate, robustness_score, timestamp, notes, id)` and `Leaderboard(db_path)` class. SQLite schema auto-created on first use; pure stdlib (`sqlite3`).
+  - `record(entry)` / `record_many(entries)` — append-only inserts; rejects out-of-range scores at the boundary, NaN, empty model_name/suite.
+  - `top_n(suite, n=10)` — ordered by `robustness_score DESC, timestamp DESC`. Pass `"all"` to drop the suite filter.
+  - `history(model_name, suite=None)` — chronological per-model history.
+  - `compare(model_a, model_b)` — latest-per-suite side-by-side; mean-of-overlapping-suites tie-break declares a winner.
+  - `KNOWN_SUITES = ("adversarial", "paraphrase", "noise")` — public contract for API/UI tabs; `load_seed()` helper for bulk JSON ingest.
+- `demo/server.py` — three new endpoints: `POST /api/leaderboard` (record), `GET /api/leaderboard/{suite}` (top 10; suite ∈ adversarial|paraphrase|noise|all), `GET /api/leaderboard/model/{name}` (history). DB lazy-initialised at `demo/leaderboard.db` (gitignored), auto-seeded from `demo/seed_leaderboard.json` on first request.
+- `demo/leaderboard.html` — live leaderboard page at `/leaderboard.html`: suite filter tabs, 10-second auto-refresh, robustness colour-coding (green ≥0.85, yellow ≥0.70, red <0.70), row-flash on new entries, offline indicator.
+- `demo/seed_leaderboard.json` — 8 realistic entries across 4 model names (phi-3-mini-4k, qwen-2.5-1.5b, llama-3.2-3b, gemma-2-2b) and all 3 suites.
+
+### Changed (breaking)
+
+**Phase-7 leaderboard renamed → ranking (frees the leaderboard namespace)**
+- `toki.leaderboard` (Bonferroni-corrected multi-model ranker, Phase 7) → `toki.ranking`. Class renames: `Leaderboard` → `Ranking`, `LeaderboardConfig` → `RankingConfig`, `LeaderboardEntry` → `RankingEntry`, `LeaderboardResult` → `RankingResult`. Save artefact `leaderboard.json` → `ranking.json`. Default `--output-dir experiments/leaderboards` → `experiments/rankings`.
+- CLI subcommand `python -m toki leaderboard` → `python -m toki rank`.
+- `toki.__init__` exports updated; old names removed (no compatibility shim — pre-1.0).
+- Rationale: the Phase-7 module is a *ranking* operation (one-shot, k-model, stat-tested). T3 introduces a fundamentally different concept — persistent time-series score tracking — that is naturally called a leaderboard. Two `Leaderboard` classes would have been confusing.
+
+### Tests
+- 10 new Python tests in `python/tests/test_leaderboard.py` — schema auto-create + empty reads, record() round-trip + auto-id, top_n sort + cap, top_n suite filter, top_n("all") global ranking, chronological history per model, compare() latest-per-suite + winner, score range validation, load_seed bulk insert, persistence across instances + KNOWN_SUITES contract.
+- `test_main.py` CLI tests renamed (`leaderboard` → `rank`) and assert the new `ranking.json` artefact path.
+- `test_ranking.py` — Phase-7's 20 tests carried over verbatim under the new module name; all still pass.
+
+### Version
+- `__version__` and `pyproject.toml` bumped to `0.10.0`.
+
+---
+
 ## [0.7.0] — 2026-05-05
 
 ### Added
