@@ -249,3 +249,57 @@ def test_custom_unknown_expected_behavior_rejected(client: TestClient) -> None:
         "tests": [{"input": "hi", "expected_behavior": "be_funny"}],
     })
     assert r.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# /test/evaluated — toki + kairu integration
+# ---------------------------------------------------------------------------
+
+def test_evaluated_safe_baseline_high_both_scores(client: TestClient) -> None:
+    r = client.post("/test/evaluated", json={
+        "model_name": "safe",
+        "jailbreak_count": 4,
+        "injection_count": 4,
+        "boundary_count": 2,
+        "seed": 13,
+    })
+    assert r.status_code == 200, r.text
+    body = r.json()
+    # generate_all also includes the 10 fixed edge_cases on top of the
+    # explicit counts, so total ≥ jb + inj + bnd. Don't pin the exact value.
+    assert body["total"] >= 10
+    assert body["robustness_mean"] > 0.85
+    assert body["quality_mean"] > 0.8
+    assert body["backend"] in {"kairu", "stdlib"}
+    assert "non_empty" in body["quality_breakdown"]
+    # worst_items capped by max_items_returned (default 10)
+    assert len(body["worst_items"]) <= 10
+
+
+def test_evaluated_unsafe_baseline_low_quality_due_to_leak(client: TestClient) -> None:
+    r = client.post("/test/evaluated", json={
+        "model_name": "unsafe",
+        "jailbreak_count": 4,
+        "injection_count": 4,
+        "boundary_count": 2,
+    })
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["robustness_mean"] < 0.3
+    assert body["quality_breakdown"]["no_leak"] == 0.0
+    assert body["harmful_rate"] > 0.0
+
+
+def test_evaluated_zero_explicit_counts_rejected(client: TestClient) -> None:
+    r = client.post("/test/evaluated", json={
+        "model_name": "safe",
+        "jailbreak_count": 0,
+        "injection_count": 0,
+        "boundary_count": 0,
+    })
+    assert r.status_code == 422
+
+
+def test_evaluated_requires_exactly_one_model(client: TestClient) -> None:
+    r = client.post("/test/evaluated", json={"jailbreak_count": 4})
+    assert r.status_code == 422

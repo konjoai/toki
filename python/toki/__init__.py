@@ -42,6 +42,15 @@ from toki.distill import (
     DistillResult,
     DistillStats,
 )
+from toki.integration import (
+    EvaluatedRobustnessTest,
+    EvaluatedReport,
+    EvaluatedItem,
+    QualityRubric,
+    QualityScores,
+    LatencyMetrics,
+    has_kairu,
+)
 
 __all__ = [
     "AdversarialGenerator",
@@ -83,4 +92,11 @@ __all__ = [
     "DistillConfig",
     "DistillResult",
     "DistillStats",
+    "EvaluatedRobustnessTest",
+    "EvaluatedReport",
+    "EvaluatedItem",
+    "QualityRubric",
+    "QualityScores",
+    "LatencyMetrics",
+    "has_kairu",
 ]

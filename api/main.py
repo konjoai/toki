@@ -8,6 +8,7 @@ GET  /suites                 → available test suites + per-suite metadata
 POST /test                   → run robustness tests on a model
 POST /compare                → paired t-test + Wilcoxon comparison of two models
 POST /custom                 → run a user-supplied list of prompts with expectations
+POST /test/evaluated         → run adversarial suite + score quality via toki+kairu
 
 Model resolution
 ----------------
@@ -64,6 +65,7 @@ from toki.compare import (
 from toki.dataset import AdversarialDataset
 from toki.evaluate import RobustnessEvaluator
 from toki.generate import AdversarialGenerator, AdversarialPrompt
+from toki.integration import EvaluatedRobustnessTest, has_kairu
 from toki.mutator import MutationConfig, PromptMutator
 
 
@@ -545,6 +547,100 @@ def post_custom(req: CustomRequest) -> dict:
         "mean_score": round(sum(scores) / n, 4) if n else 0.0,
         "tests": out_tests,
         "timing_ms": round((time.perf_counter() - started) * 1000.0, 1),
+    }
+
+
+class EvaluatedTestRequest(BaseModel):
+    """Request for the integrated robustness + quality test."""
+
+    model_name: Optional[str] = None
+    model_url: Optional[str] = None
+    seed: int = Field(default=42, ge=0)
+    jailbreak_count: int = Field(default=6, ge=0, le=20)
+    injection_count: int = Field(default=6, ge=0, le=20)
+    boundary_count:  int = Field(default=3, ge=0, le=10)
+    max_items_returned: int = Field(default=10, ge=0, le=50)
+
+    @model_validator(mode="after")
+    def _exactly_one_model(self) -> "EvaluatedTestRequest":
+        if (self.model_name is None) == (self.model_url is None):
+            raise ValueError("exactly one of model_name or model_url is required")
+        # generate_all() always includes the 10 fixed edge_case patterns on
+        # top of the explicit counts, so honor that in the limit too.
+        explicit = self.jailbreak_count + self.injection_count + self.boundary_count
+        if explicit < 1:
+            raise ValueError("at least one of jailbreak/injection/boundary count must be >= 1")
+        total_with_edge = explicit + 10
+        if total_with_edge > MAX_PROMPTS_PER_SUITE:
+            raise ValueError(
+                f"total prompts (incl. 10 edge_cases) exceeds limit of {MAX_PROMPTS_PER_SUITE}"
+            )
+        return self
+
+
+@app.post("/test/evaluated")
+def post_test_evaluated(req: EvaluatedTestRequest) -> dict:
+    """Run toki's adversarial suite AND score each output's quality.
+
+    Returns paired robustness + quality scores plus per-response latency
+    metrics. Quality is scored by ``toki.integration.QualityRubric``;
+    latency comes from kairu's ``GenerationMetrics`` when kairu is installed
+    (``backend == "kairu"``), or stdlib ``perf_counter`` otherwise.
+    """
+    model_fn, display_name, opener = _resolve_model(
+        req.model_name, req.model_url, label="model"
+    )
+    started = time.perf_counter()
+    try:
+        test = EvaluatedRobustnessTest(model_fn=model_fn)
+        report = test.run(
+            seed=req.seed,
+            jailbreak_count=req.jailbreak_count,
+            injection_count=req.injection_count,
+            boundary_count=req.boundary_count,
+        )
+    finally:
+        if opener is not None:
+            opener.close()
+
+    # Surface only the worst-N items (by robustness, ties broken by quality)
+    # so the response stays bounded regardless of suite size.
+    sorted_items = sorted(
+        report.items,
+        key=lambda it: (it.robustness_score, it.quality.overall),
+    )[: req.max_items_returned]
+    items_view = [
+        {
+            "category":         it.prompt.category,
+            "strategy":         it.prompt.strategy,
+            "prompt":           _truncate(it.prompt.text, 200),
+            "response":         _truncate(it.response, 320),
+            "robustness_score": round(it.robustness_score, 4),
+            "quality":          it.quality.to_dict(),
+            "latency":          it.latency.to_dict(),
+            "refused":          it.refused,
+            "harmful":          it.harmful,
+            "leaked":           it.leaked,
+        }
+        for it in sorted_items
+    ]
+
+    return {
+        "model":             display_name,
+        "total":             report.total,
+        "robustness_mean":   round(report.robustness_mean, 4),
+        "quality_mean":      round(report.quality_mean, 4),
+        "quality_breakdown": {k: round(v, 4) for k, v in report.quality_breakdown.items()},
+        "refusal_rate":      round(report.refusal_rate, 4),
+        "harmful_rate":      round(report.harmful_rate, 4),
+        "leak_rate":         round(report.leak_rate, 4),
+        "by_category":       {k: round(v, 4) for k, v in report.by_category.items()},
+        "latency_mean_ms":   round(report.latency_mean_ms, 2),
+        "tokens_per_second": round(report.tokens_per_second, 2),
+        "backend":           report.backend,
+        "kairu_installed":   has_kairu(),
+        "worst_items":       items_view,
+        "timing_ms":         round((time.perf_counter() - started) * 1000.0, 1),
     }
 
 
