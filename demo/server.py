@@ -77,6 +77,7 @@ from toki.compare import (
 from toki.dataset import AdversarialDataset
 from toki.evaluate import RobustnessEvaluator
 from toki.generate import AdversarialGenerator, AdversarialPrompt
+from toki.integration import EvaluatedRobustnessTest, has_kairu
 from toki.leaderboard import (
     KNOWN_SUITES,
     Leaderboard,
@@ -564,6 +565,133 @@ def api_leaderboard_history(model_name: str) -> dict:
 # HTTP plumbing
 # ---------------------------------------------------------------------------
 
+def api_leaderboard(body: dict) -> dict:
+    """Run real ``Leaderboard`` over all built-in baselines + a hardened model.
+
+    The hardened model is the round-N HardeningModel — a model that's been
+    "fine-tuned" to refuse most adversarial prompts. This produces a
+    ranking that the dashboard can render as floating shapes.
+
+    body: {"suite": "adversarial"|"paraphrase"|"noise", "seed": 42, "size": 18}
+    """
+    suite = str(body.get("suite", "adversarial"))
+    seed = int(body.get("seed", 42))
+    size = max(3, min(int(body.get("size", 18)), 60))
+    per = max(1, size // 3)
+
+    # The hardened model — round-N over a 3-round budget = always refuses.
+    hardened = HardeningModel(round_index=3, max_round=3)
+
+    # We can't seed `hardened.register_prompts` without knowing the prompts
+    # first, so wrap it in a lambda that re-seeds on each call. Leaderboard
+    # generates one shared dataset internally; we mirror that here so the
+    # hardened model has its lookup populated for the same prompts.
+    gen = AdversarialGenerator(seed=seed)
+    if suite == "noise":
+        prompts = (
+            gen.generate_edge_cases()
+            + gen.generate_boundary_cases(count=per)
+        )
+    elif suite == "paraphrase":
+        # Paraphrase suite for the leaderboard is a small jailbreak surface
+        # so all baselines see the same shape of attack.
+        prompts = gen.generate_jailbreaks(count=size)
+    else:
+        prompts = gen.generate_all(
+            jailbreak_count=per, injection_count=per, boundary_count=max(1, size - 2 * per)
+        )
+    hardened.register_prompts(prompts)
+
+    models = [
+        ModelSpec("safe",     BASELINES["safe"]),
+        ModelSpec("unsafe",   BASELINES["unsafe"]),
+        ModelSpec("mixed",    BASELINES["mixed"]),
+        ModelSpec("hardened", hardened),
+    ]
+
+    cfg = LeaderboardConfig(
+        name="storm_leaderboard",
+        seed=seed,
+        jailbreak_count=per,
+        injection_count=per,
+        boundary_count=max(1, size - 2 * per),
+    )
+    started = time.perf_counter()
+    result = Leaderboard(models, cfg).run()
+    elapsed = (time.perf_counter() - started) * 1000.0
+
+    return {
+        "suite":     suite,
+        "n_models":  result.n_models,
+        "n_pairs":   result.n_pairs,
+        "alpha_bonferroni": round(result.alpha_bonferroni, 4),
+        "entries": [
+            {
+                "name":          e.name,
+                "rank":          e.rank,
+                "mean_score":    round(e.mean_score, 4),
+                "wins":          e.wins,
+                "losses":        e.losses,
+                "ties":          e.ties,
+                "n_comparisons": e.n_comparisons,
+                "significant":   e.significant,
+            }
+            for e in result.entries
+        ],
+        "pairs": [
+            {
+                "name_a":     p.name_a,
+                "name_b":     p.name_b,
+                "winner":     p.winner,
+                "mean_a":     round(p.mean_a, 4),
+                "mean_b":     round(p.mean_b, 4),
+                "significant": p.significant,
+                "t_p_value":  round(p.t_p_value, 5),
+                "w_p_value":  round(p.w_p_value, 5),
+            }
+            for p in result.pairs
+        ],
+        "timing_ms": round(elapsed, 1),
+    }
+
+
+def api_evaluated(body: dict) -> dict:
+    """Run the toki+kairu integrated test against a chosen baseline."""
+    name = str(body.get("model", "safe"))
+    if name not in BASELINES and name != "hardened":
+        return {"error": f"model must be 'hardened' or in {sorted(BASELINES)}"}
+    seed = int(body.get("seed", 42))
+    jb = max(1, min(int(body.get("jailbreak_count", 5)), 12))
+    inj = max(1, min(int(body.get("injection_count", 5)), 12))
+    bnd = max(1, min(int(body.get("boundary_count",  3)),  8))
+
+    if name == "hardened":
+        gen = AdversarialGenerator(seed=seed)
+        prompts = gen.generate_all(jailbreak_count=jb, injection_count=inj, boundary_count=bnd)
+        m = HardeningModel(round_index=3, max_round=3)
+        m.register_prompts(prompts)
+        model_fn = m
+    else:
+        model_fn = BASELINES[name]
+
+    started = time.perf_counter()
+    test = EvaluatedRobustnessTest(model_fn=model_fn)
+    rep = test.run(seed=seed, jailbreak_count=jb, injection_count=inj, boundary_count=bnd)
+    elapsed = (time.perf_counter() - started) * 1000.0
+    out = rep.to_dict()
+    out.update({
+        "model":           name,
+        "kairu_installed": has_kairu(),
+        "timing_ms":       round(elapsed, 1),
+    })
+    # Trim items to keep the wire payload lean; the dashboard wants the
+    # worst few examples for the cracked-shape display.
+    sorted_items = sorted(out["items"], key=lambda i: i["robustness_score"])[:8]
+    out["worst_items"] = sorted_items
+    out.pop("items")
+    return out
+
+
 ROUTES = {
     ("GET",  "/api/health"):       lambda body: api_health(),
     ("GET",  "/api/attacks"):      lambda body: api_attacks(),
@@ -571,7 +699,14 @@ ROUTES = {
     ("POST", "/api/run-pipeline"): api_run_pipeline,
     ("POST", "/api/compare"):      api_compare,
     ("POST", "/api/compare-models"): api_compare_models,
+    # Persistent leaderboard from main: record one entry per call, GET endpoints
+    # under /api/leaderboard/<suite> serve top-N and per-model history.
     ("POST", "/api/leaderboard"):  api_leaderboard_record,
+    # Run the toki+kairu integrated robustness test against a chosen baseline.
+    ("POST", "/api/evaluated"):    api_evaluated,
+    # NOTE: api_leaderboard() (defined below) targets a stale Leaderboard API
+    # (LeaderboardConfig was removed when toki.leaderboard became SQLite-backed)
+    # and is intentionally unrouted until ported.
 }
 
 
