@@ -4,6 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Toki — Train AI to refuse harmful requests, automatically</title>
+<link rel="stylesheet" href="storm.css" />
 <style>
   :root {
     --bg-0:        #06080d;
@@ -723,6 +724,8 @@
       <li><a href="#defense">Live defense</a></li>
       <li><a href="#simulator">Run a round</a></li>
       <li><a href="#compare">Before / after</a></li>
+      <li><a href="ranking.html">Ranking ↗</a></li>
+      <li><a href="leaderboard.html">Leaderboard ↗</a></li>
     </ul>
     <span class="pill" id="serverPill" title="Live status of demo/server.py">
       <span id="serverDot" class="server-dot"></span>
@@ -744,9 +747,9 @@
 </div>
 
 <!-- ============ HERO ============ -->
-<section class="hero">
+<section class="hero storm-host" id="heroStorm" data-intensity="normal">
   <div class="hero-glyph">陶</div>
-  <div class="wrap" style="position:relative;">
+  <div class="wrap storm-content" style="position:relative;">
     <span class="badge"><span class="live-dot"></span> Open source · Apache-friendly · No real LLM needed to demo</span>
     <h1 class="title">Toki<span class="dot">.</span></h1>
     <p class="tagline">Train AI to refuse harmful requests — automatically, repeatedly, reliably.</p>
@@ -936,6 +939,18 @@ result = <span class="tok-f">HardeningPipeline</span>(cfg, model_fn=my_llm).<spa
         <div class="step" data-step="4">
           <div class="num">4</div>
           <div><div class="lbl">Update model</div><div class="sub">harder next round</div></div>
+        </div>
+      </div>
+
+      <div class="sim-avatar-row" style="display:flex; align-items:center; gap:22px; margin: 16px 0 22px; flex-wrap: wrap;">
+        <div class="model-shape-wrap" id="simShape" data-verdict="idle" style="--ms-size:120px;"></div>
+        <div style="display:flex; flex-direction:column; gap:8px;">
+          <div style="font-size:13px; color:var(--text-dim); letter-spacing:.14em; text-transform:uppercase;">Model state</div>
+          <div style="display:flex; align-items:center; gap:10px;">
+            <span id="simVerdictBig" style="font-size:18px; font-weight:800; letter-spacing:.04em; color:var(--text-dim);">idle</span>
+            <span class="streak-chip" id="simStreakChip" data-tier="0" style="display:none;"></span>
+          </div>
+          <div class="mono" style="font-size:12px; color:var(--text-dim);">3 in a row → 1 ring · 5 → 2 · 10 → 3</div>
         </div>
       </div>
 
@@ -1368,6 +1383,7 @@ async function runRound() {
   elResponseMeta.style.display = "flex";
   elScore.textContent = score.toFixed(2);
   setVerdictPill(blocked ? "BLOCKED" : "BYPASSED", blocked);
+  if (window.__tokiStormSync) window.__tokiStormSync(blocked, score);
 
   setStep(4);
   chartScores.push({ score, isLive });
@@ -1420,6 +1436,7 @@ async function autoRunPipeline() {
       roundIdx = r.round + 1;
       elRoundNum.textContent = roundIdx;
       elLastScore.textContent = r.score.toFixed(2);
+      if (window.__tokiStormSync) window.__tokiStormSync(r.score >= 0.85, r.score);
       drawLiveChart();
       await sleep(600);
     }
@@ -1447,6 +1464,7 @@ async function autoRunPipeline() {
 function reset() {
   if (STATE.busy) return;
   roundIdx = 0; chartScores = [];
+  if (window.__tokiStormReset) window.__tokiStormReset();
   clearSteps();
   elAttack.textContent = "Press “Run a round” or “Auto-run pipeline” to start.";
   elResponse.textContent = "—";
@@ -1671,6 +1689,72 @@ $$("#comparePresets button").forEach(b => {
     runCompare();
   });
 });
+</script>
+<script src="storm.js"></script>
+<script>
+/* ============================================================
+   Storm boot — atmospheric system + spring-physics shape +
+   streak counter wired to the simulator round outcome.
+   ============================================================ */
+(function bootStorm() {
+  const hero = document.getElementById("heroStorm");
+  if (hero) {
+    initStorm(hero, { rainCount: 90, windCount: 8, ambientLightning: true });
+    setStormIntensity(hero, "normal");
+    // Tone the static glyph way down — the volumetric clouds carry the mood now.
+    const glyph = hero.querySelector(".hero-glyph");
+    if (glyph) glyph.style.opacity = ".025";
+  }
+
+  const wrap = document.getElementById("simShape");
+  if (!wrap) return;
+  const shape = mountSpringShape(wrap);
+  shape.setVerdict("idle");
+
+  const verdictBig = document.getElementById("simVerdictBig");
+  const streakChip = document.getElementById("simStreakChip");
+
+  let streak = 0;
+
+  window.__tokiStormSync = function (blocked, score) {
+    if (blocked) {
+      streak += 1;
+      shape.setVerdict("blocked");
+      if (hero) triggerLightning(hero);  // celebratory bolt
+    } else {
+      streak = 0;
+      shape.setVerdict(score >= 0.5 ? "warn" : "bypassed");
+      if (hero) {
+        // bypass: storm intensifies briefly
+        setStormIntensity(hero, "high");
+        clearTimeout(window.__tokiStormCalmTimer);
+        window.__tokiStormCalmTimer = setTimeout(() => setStormIntensity(hero, "normal"), 4500);
+      }
+    }
+    shape.setStreak(streak);
+    if (verdictBig) {
+      verdictBig.textContent = blocked ? "BLOCKED" : "BYPASSED";
+      verdictBig.style.color = blocked ? "var(--safe)" : "var(--threat)";
+    }
+    if (streakChip) renderStreakChip(streakChip, streak);
+  };
+
+  window.__tokiStormReset = function () {
+    streak = 0;
+    shape.setVerdict("idle");
+    shape.setStreak(0);
+    if (verdictBig) { verdictBig.textContent = "idle"; verdictBig.style.color = "var(--text-dim)"; }
+    if (streakChip) renderStreakChip(streakChip, 0);
+    if (hero) setStormIntensity(hero, "normal");
+  };
+
+  // Hotkey: "L" zaps a bolt at the hero.
+  document.addEventListener("keydown", (e) => {
+    if (e.key.toLowerCase() === "l" && !e.metaKey && !e.ctrlKey && hero) {
+      triggerLightning(hero);
+    }
+  });
+})();
 </script>
 </body>
 </html>

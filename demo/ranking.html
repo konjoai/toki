@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Toki — Pairwise Ranking</title>
+<link rel="stylesheet" href="storm.css" />
+<style>
+  :root {
+    --bg-0:  #06080d;
+    --bg-1:  #0c1018;
+    --bg-2:  #131826;
+    --bg-3:  #1a2236;
+    --line:  #1f2a44;
+    --text:  #e6ecff;
+    --text-dim:   #8a93b3;
+    --text-muted: #5b6485;
+    --threat: #ff4a4a;
+    --warn:   #fb923c;
+    --warn-2: #fbbf24;
+    --safe:   #4ade80;
+    --info:   #4cd2ff;
+    --magenta:#c084fc;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: var(--bg-0); color: var(--text); }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", system-ui, sans-serif;
+    line-height: 1.55;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+  a { color: var(--info); text-decoration: none; }
+  .mono { font-family: "JetBrains Mono", "SF Mono", Menlo, monospace; }
+
+  /* page-wide storm host */
+  body.storm-host { background: var(--bg-0); }
+
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 0 28px; }
+
+  .nav {
+    position: sticky; top: 0; z-index: 60;
+    backdrop-filter: blur(14px);
+    background: rgba(7,8,13,.65);
+    border-bottom: 1px solid var(--line);
+  }
+  .nav-inner { display: flex; align-items: center; justify-content: space-between;
+               max-width: 1180px; margin: 0 auto; padding: 14px 28px; }
+  .logo { font-weight: 800; letter-spacing: .02em; font-size: 18px; display: inline-flex; align-items: center; gap: 8px; }
+  .logo .glyph { color: var(--threat); }
+  .nav ul { list-style: none; display: flex; gap: 26px; }
+  .nav ul a { color: var(--text-dim); font-size: 14px; }
+  .nav ul a:hover { color: var(--text); }
+  .nav-pill {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 6px 12px; border: 1px solid var(--line); border-radius: 999px;
+    color: var(--text-dim); font-size: 12px; background: var(--bg-2);
+  }
+  .nav-pill .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-muted); }
+  .nav-pill[data-state="live"]    { color: var(--safe);   border-color: rgba(74,222,128,.4); }
+  .nav-pill[data-state="live"] .dot { background: var(--safe); box-shadow: 0 0 10px var(--safe); animation: dotPulse 1.6s infinite; }
+  .nav-pill[data-state="offline"] { color: var(--threat); border-color: rgba(255,74,74,.45); }
+  .nav-pill[data-state="offline"] .dot { background: var(--threat); }
+  .nav-pill[data-state="busy"]    { color: var(--warn);   border-color: rgba(251,146,60,.4); }
+  .nav-pill[data-state="busy"] .dot { background: var(--warn); animation: dotPulse .7s infinite; }
+  @keyframes dotPulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+
+  .server-banner {
+    background: linear-gradient(180deg, rgba(255,74,74,.10), rgba(255,74,74,.04));
+    border-bottom: 1px solid rgba(255,74,74,.30);
+    padding: 12px 0; font-size: 14px; color: var(--text-dim); display: none;
+  }
+  .server-banner .inner { display: flex; align-items: center; gap: 14px; max-width: 1180px; margin: 0 auto; padding: 0 28px; flex-wrap: wrap; }
+  .server-banner strong { color: var(--threat); }
+  .server-banner code {
+    padding: 4px 10px; background: var(--bg-2); border: 1px solid var(--line);
+    border-radius: 6px; color: var(--info); font-size: 13px; user-select: all;
+  }
+  .server-banner button {
+    margin-left: auto;
+    padding: 6px 14px; border-radius: 6px;
+    background: var(--bg-2); border: 1px solid var(--line);
+    color: var(--text); font-weight: 600; font-size: 13px; cursor: pointer;
+  }
+
+  /* hero band */
+  .hero {
+    padding: 110px 0 70px; position: relative;
+  }
+  .hero-eyebrow {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 6px 12px; border-radius: 999px;
+    border: 1px solid rgba(192,132,252,.4);
+    background: rgba(192,132,252,.10);
+    color: var(--magenta);
+    font-size: 12px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase;
+    margin-bottom: 22px;
+  }
+  .hero h1 {
+    font-size: clamp(38px, 6.4vw, 78px);
+    font-weight: 800; letter-spacing: -.02em; line-height: 1;
+    margin-bottom: 18px;
+    background: linear-gradient(135deg, #fff 0%, #d0c0ff 50%, var(--magenta) 100%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .hero p.lead {
+    font-size: clamp(16px, 1.6vw, 19px); color: var(--text-dim); max-width: 720px;
+  }
+  .hero .controls {
+    margin-top: 30px;
+    display: flex; gap: 14px; align-items: center; flex-wrap: wrap;
+  }
+  .hero .controls label { color: var(--text-dim); font-size: 13.5px; display: inline-flex; align-items: center; gap: 8px; }
+  .hero .controls input[type="number"] {
+    width: 80px; padding: 8px 10px; background: var(--bg-2);
+    border: 1px solid var(--line); border-radius: 8px;
+    color: var(--text); font-family: "JetBrains Mono", monospace; font-size: 13px;
+  }
+  .btn {
+    padding: 12px 22px; border-radius: 10px; font-weight: 700; font-size: 14.5px;
+    cursor: pointer; transition: all .18s ease;
+    background: linear-gradient(135deg, var(--magenta), #7c3aed);
+    color: #fff; border: none;
+    box-shadow: 0 12px 32px rgba(124,58,237,.35);
+  }
+  .btn:hover { transform: translateY(-2px); box-shadow: 0 18px 40px rgba(124,58,237,.45); }
+  .btn:disabled { opacity: .55; cursor: not-allowed; transform: none; }
+  .btn-ghost {
+    background: var(--bg-2); border: 1px solid var(--line); color: var(--text);
+    box-shadow: none;
+  }
+  .btn-ghost:hover { border-color: var(--magenta); color: var(--magenta); transform: translateY(-1px); }
+
+  /* leaderboard section header */
+  .lb-section { padding: 30px 0 70px; }
+  .lb-header {
+    display: flex; justify-content: space-between; align-items: baseline;
+    margin-bottom: 16px;
+    flex-wrap: wrap; gap: 12px;
+  }
+  .lb-header h2 { font-size: 24px; font-weight: 800; }
+  .lb-meta { color: var(--text-dim); font-family: "JetBrains Mono", monospace; font-size: 12.5px; }
+  .lb-meta b { color: var(--text); }
+
+  /* responsive title cell tweaks */
+  @media (max-width: 880px) {
+    .lb-row { padding: 16px 16px; }
+  }
+
+  footer {
+    padding: 50px 0 70px; text-align: center; color: var(--text-muted); font-size: 13px;
+    border-top: 1px solid var(--line);
+  }
+  footer .glyphs { font-size: 16px; color: var(--text-dim); margin-bottom: 8px; letter-spacing: .25em; }
+</style>
+</head>
+<body class="storm-host" data-intensity="normal">
+
+<!-- nav (above storm) -->
+<nav class="nav" style="position:sticky; z-index:60;">
+  <div class="nav-inner">
+    <div class="logo"><span class="glyph">陶</span> Toki <span style="color:var(--text-dim); font-weight:500; margin-left:6px;">· pairwise ranking</span></div>
+    <ul>
+      <li><a href="index.html">← Demo</a></li>
+      <li><a href="#leaderboard">Ranking</a></li>
+      <li><a href="#significance">Significance</a></li>
+      <li><a href="leaderboard.html">Persistent leaderboard ↗</a></li>
+    </ul>
+    <span class="nav-pill" id="serverPill" data-state="busy">
+      <span class="dot"></span> <span id="serverText">checking…</span>
+    </span>
+  </div>
+</nav>
+
+<div class="server-banner" id="serverBanner">
+  <div class="inner">
+    <div><strong>Server offline.</strong> The leaderboard needs the demo backend. Start it with</div>
+    <code class="mono">python3 demo/server.py</code>
+    <button id="bannerRetry">↻ Retry</button>
+  </div>
+</div>
+
+<!-- ============ HERO ============ -->
+<section class="hero storm-content">
+  <div class="wrap">
+    <span class="hero-eyebrow">三 · Three baselines · One storm</span>
+    <h1>The Leaderboard</h1>
+    <p class="lead">
+      Three model behaviours pitted against the same adversarial dataset.
+      Real <code class="mono">RobustnessEvaluator</code> scores. Real
+      paired t-test + Wilcoxon. The wind decides who's safest.
+    </p>
+    <div class="controls">
+      <label>Prompts <input type="number" id="optSize" value="18" min="6" max="60" step="3" /></label>
+      <label>Seed    <input type="number" id="optSeed" value="42" /></label>
+      <label>α       <input type="number" id="optAlpha" value="0.05" step="0.01" min="0.001" max="0.5" /></label>
+      <button class="btn" id="runBtn">⚡ Run leaderboard</button>
+      <button class="btn btn-ghost" id="strikeBtn">⛈ Trigger lightning</button>
+    </div>
+  </div>
+</section>
+
+<!-- ============ LEADERBOARD ============ -->
+<section class="lb-section storm-content" id="leaderboard">
+  <div class="wrap">
+    <div class="lb-header">
+      <h2>Ranking</h2>
+      <div class="lb-meta">
+        seed <b id="metaSeed">42</b> · prompts <b id="metaSize">—</b> ·
+        evaluated <b id="metaWhen">—</b> · <span id="metaTiming"></span>
+      </div>
+    </div>
+
+    <div class="lb-stage" id="lbStage">
+      <!-- rows injected by JS -->
+      <div class="lb-row" data-rank="placeholder" id="lbPlaceholder">
+        <div></div>
+        <div class="lb-name">Awaiting first run<span class="sub">press “⚡ Run leaderboard”</span></div>
+        <div class="lb-bar-wrap"><div class="lb-bar-row"><span class="lbl">score</span><div class="lb-bar score"><span style="width:0%"></span></div><span class="num">—</span></div></div>
+        <div></div>
+        <div class="lb-shape-cell">
+          <div class="model-shape-wrap" data-verdict="idle" style="--ms-size: 90px;"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- pairwise significance matrix -->
+    <div class="sig-matrix" id="significance">
+      <h3>Pairwise significance <span style="color: var(--text-dim); font-weight: 400; font-size: 13px;">(α = <span id="alphaShown">0.05</span>; ✓ = paired test rejects H₀)</span></h3>
+      <table class="sig-table" id="sigTable">
+        <thead></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<footer class="storm-content">
+  <div class="wrap">
+    <div class="glyphs">ቆንጆ · 根性 · 康宙 · कोहजो · ᨀᨚᨐᨚ · 건조 · কুঞ্জ</div>
+    <div>Toki — adversarial fine-tuning lab · BUSL-1.1</div>
+  </div>
+</footer>
+
+<script src="storm.js"></script>
+<script>
+/* ============================================================
+   Boot atmosphere
+   ============================================================ */
+initStorm(document.body, { rainCount: 120, windCount: 12, ambientLightning: true });
+setStormIntensity(document.body, "normal");
+
+const $  = (id) => document.getElementById(id);
+const $$ = (sel) => [...document.querySelectorAll(sel)];
+
+const API_BASE = location.protocol === "file:" ? "http://127.0.0.1:8765" : "";
+const STATE = { live: false, busy: false };
+
+async function api(method, path, body) {
+  const res = await fetch(API_BASE + path, {
+    method, headers: body ? { "Content-Type": "application/json" } : undefined,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!res.ok) throw new Error(`${method} ${path} → ${res.status}`);
+  return res.json();
+}
+
+function setServer(state, text) {
+  const pill = $("serverPill");
+  pill.dataset.state = state;
+  $("serverText").textContent = text;
+  $("serverBanner").style.display = state === "offline" ? "block" : "none";
+}
+
+async function pingServer() {
+  setServer("busy", "checking…");
+  try {
+    const d = await api("GET", "/api/health");
+    STATE.live = true;
+    setServer("live", `live · v${d.version}`);
+  } catch (_) {
+    STATE.live = false;
+    setServer("offline", "server offline");
+  }
+}
+$("bannerRetry").addEventListener("click", pingServer);
+pingServer();
+
+$("strikeBtn").addEventListener("click", () => triggerLightning(document.body));
+
+/* ============================================================
+   Leaderboard data flow
+   ============================================================ */
+const BASELINES = ["safe", "mixed", "unsafe"];
+// Pretty descriptors
+const META = {
+  safe:   { label: "BASELINE_SAFE",   sub: "always refuses",                short: "S" },
+  mixed:  { label: "BASELINE_MIXED",  sub: "refuses on trigger words",      short: "M" },
+  unsafe: { label: "BASELINE_UNSAFE", sub: "always jailbroken",             short: "U" },
+};
+
+// Pairs of baselines we need to compare (order-independent).
+const PAIRS = [
+  ["safe", "unsafe"],
+  ["safe", "mixed"],
+  ["mixed", "unsafe"],
+];
+
+function pairKey(a, b) { return [a, b].sort().join("__"); }
+
+async function runLeaderboard() {
+  if (STATE.busy) return;
+  if (!STATE.live) {
+    alert("This page needs the demo server. Run:\n\n  python3 demo/server.py");
+    return;
+  }
+  STATE.busy = true;
+  $("runBtn").disabled = true;
+  setStormIntensity(document.body, "high");
+
+  const seed = parseInt($("optSeed").value, 10) || 42;
+  const size = parseInt($("optSize").value, 10) || 18;
+  const alpha = parseFloat($("optAlpha").value) || 0.05;
+  $("metaSeed").textContent = seed;
+  $("metaSize").textContent = size;
+  $("alphaShown").textContent = alpha;
+
+  // run all 3 pairwise calls in parallel
+  const startMs = performance.now();
+  let results;
+  try {
+    const calls = PAIRS.map(([a, b]) =>
+      api("POST", "/api/compare-models", { model_a: a, model_b: b, seed, size, alpha })
+    );
+    results = await Promise.all(calls);
+  } catch (e) {
+    alert("Comparison failed: " + e.message);
+    STATE.busy = false; $("runBtn").disabled = false;
+    setStormIntensity(document.body, "normal");
+    return;
+  }
+
+  // Lightning strike to celebrate the result landing.
+  triggerLightning(document.body);
+  setTimeout(() => triggerLightning(document.body), 220);
+
+  // Aggregate per-baseline scores. Each baseline appears in 2 pairs;
+  // its mean_score is identical across pairs (same seed/dataset) but we
+  // average for safety.
+  const agg = {};
+  BASELINES.forEach(b => agg[b] = { mean: [], refusal: [], harm: [], leak: [], byCat: {}, total: 0 });
+  results.forEach((r, i) => {
+    const [a, b] = PAIRS[i];
+    const fa = r.model_a, fb = r.model_b;
+    [[a, fa], [b, fb]].forEach(([name, m]) => {
+      agg[name].mean.push(m.mean_score);
+      agg[name].refusal.push(m.refusal_rate);
+      agg[name].harm.push(m.harmful_rate);
+      agg[name].leak.push(m.leak_rate);
+      agg[name].total = m.total_prompts;
+      Object.entries(m.by_category).forEach(([cat, s]) => {
+        agg[name].byCat[cat] = (agg[name].byCat[cat] ?? 0) + s;
+        agg[name].byCat[cat + "_n"] = (agg[name].byCat[cat + "_n"] ?? 0) + 1;
+      });
+    });
+  });
+  const mean = arr => arr.reduce((s, x) => s + x, 0) / arr.length;
+  const ranked = BASELINES.map(b => ({
+    name: b,
+    score:   mean(agg[b].mean),
+    refusal: mean(agg[b].refusal),
+    harm:    mean(agg[b].harm),
+    leak:    mean(agg[b].leak),
+    total:   agg[b].total,
+  })).sort((x, y) => y.score - x.score);
+
+  // Pairwise significance lookup (key by sorted pair)
+  const sig = {};
+  results.forEach((r, i) => {
+    const [a, b] = PAIRS[i];
+    sig[pairKey(a, b)] = {
+      winner:      r.winner,
+      delta:       r.score_delta,
+      significant: r.significant,
+      t:           r.t_test,
+      w:           r.wilcoxon,
+    };
+  });
+
+  renderLeaderboard(ranked);
+  renderSignificance(ranked, sig);
+
+  const elapsed = (performance.now() - startMs).toFixed(0);
+  $("metaWhen").textContent   = new Date().toLocaleTimeString();
+  $("metaTiming").innerHTML   = `<b style="color:var(--safe)">${elapsed} ms</b> across 3 pairwise runs`;
+
+  setStormIntensity(document.body, "normal");
+  STATE.busy = false; $("runBtn").disabled = false;
+}
+
+/* ---------- render ---------- */
+const SHAPES = []; // ShapeCtl per row, in rank order
+
+function renderLeaderboard(ranked) {
+  SHAPES.length = 0;
+  const stage = $("lbStage");
+  stage.innerHTML = "";
+
+  ranked.forEach((m, i) => {
+    const rank = i + 1;
+    const meta = META[m.name];
+    const row = document.createElement("div");
+    row.className = "lb-row";
+    row.dataset.rank = rank;
+    row.innerHTML = `
+      <div class="lb-rank">#${rank}</div>
+      <div class="lb-name">${meta.label}<span class="sub">${meta.sub}</span></div>
+      <div class="lb-bar-wrap">
+        <div class="lb-bar-row"><span class="lbl">score</span>   <div class="lb-bar score"><span style="width:0%"></span></div><span class="num" data-num="score">${m.score.toFixed(2)}</span></div>
+        <div class="lb-bar-row"><span class="lbl">refusal</span> <div class="lb-bar score"><span style="width:0%"></span></div><span class="num" data-num="refusal">${(m.refusal*100|0)}%</span></div>
+        <div class="lb-bar-row"><span class="lbl">harm</span>    <div class="lb-bar harm"><span style="width:0%"></span></div><span class="num" data-num="harm">${(m.harm*100|0)}%</span></div>
+        <div class="lb-bar-row"><span class="lbl">leak</span>    <div class="lb-bar leak"><span style="width:0%"></span></div><span class="num" data-num="leak">${(m.leak*100|0)}%</span></div>
+      </div>
+      <div class="streak-cell">
+        <div class="streak-chip" data-streak></div>
+      </div>
+      <div class="lb-shape-cell">
+        <div class="model-shape-wrap" style="--ms-size: 130px;"></div>
+      </div>
+    `;
+    stage.appendChild(row);
+
+    // animate bars in
+    const bars = row.querySelectorAll(".lb-bar > span");
+    const widths = [m.score, m.refusal, m.harm, m.leak].map(v => Math.max(2, v * 100));
+    setTimeout(() => bars.forEach((b, j) => b.style.width = widths[j].toFixed(1) + "%"), 80 + i * 220);
+
+    // mount spring shape, set verdict + streak (streak = consecutive blocks, here = total prompts × pass rate)
+    const wrap = row.querySelector(".model-shape-wrap");
+    const ctl = mountSpringShape(wrap);
+    SHAPES.push(ctl);
+
+    const verdict = m.score >= 0.85 ? "blocked"
+                  : m.score >= 0.5  ? "warn"
+                  : "bypassed";
+    setTimeout(() => {
+      ctl.setVerdict(verdict);
+      const blockedCount = Math.round(m.refusal * m.total);
+      ctl.setStreak(blockedCount);
+      const chip = row.querySelector("[data-streak]");
+      renderStreakChip(chip, blockedCount);
+    }, 200 + i * 220);
+  });
+}
+
+function renderSignificance(ranked, sig) {
+  const tbl = $("sigTable");
+  const head = tbl.querySelector("thead");
+  const body = tbl.querySelector("tbody");
+  head.innerHTML = "";
+  body.innerHTML = "";
+
+  const names = ranked.map(r => r.name);
+  const headRow = document.createElement("tr");
+  headRow.innerHTML = "<th></th>" + names.map(n => `<th>${META[n].label}</th>`).join("");
+  head.appendChild(headRow);
+
+  names.forEach(rowName => {
+    const tr = document.createElement("tr");
+    let html = `<th>${META[rowName].label}</th>`;
+    names.forEach(colName => {
+      if (rowName === colName) {
+        html += `<td class="diag">—</td>`;
+      } else {
+        const k = pairKey(rowName, colName);
+        const s = sig[k];
+        if (!s) { html += `<td class="diag">·</td>`; return; }
+        const cls = s.significant ? "sig" : "ns";
+        const mark = s.significant ? "✓" : "·";
+        const p = s.t ? s.t.p_value : (s.w ? s.w.p_value : null);
+        const pStr = (p == null) ? "" : (p < 1e-4 ? p.toExponential(1) : p.toFixed(4));
+        const winnerHint = s.significant && s.winner !== "tie" ? `<div style="font-size:10px; color:var(--text-dim); letter-spacing:.1em; margin-top:2px;">winner: ${META[s.winner]?.short || s.winner}</div>` : "";
+        html += `<td class="${cls}">${mark} <span style="font-size:10.5px; color:var(--text-dim);">p=${pStr}</span>${winnerHint}</td>`;
+      }
+    });
+    tr.innerHTML = html;
+    body.appendChild(tr);
+  });
+}
+
+/* ---------- wiring ---------- */
+$("runBtn").addEventListener("click", runLeaderboard);
+
+// Keyboard shortcut: 'L' triggers a lightning bolt for fun.
+document.addEventListener("keydown", (e) => {
+  if (e.key.toLowerCase() === "l" && !e.metaKey && !e.ctrlKey) {
+    triggerLightning(document.body);
+  }
+});
+
+// Auto-run once if the server is up after page load.
+window.addEventListener("load", async () => {
+  setTimeout(async () => {
+    await pingServer();
+    if (STATE.live) runLeaderboard();
+  }, 500);
+});
+</script>
+
+</body>
+</html>

@@ -616,21 +616,57 @@ class Handler(BaseHTTPRequestHandler):
         self._set_cors()
         self.end_headers()
 
+    # Whitelist — only files in demo/ with these extensions are servable.
+    _STATIC_TYPES = {
+        ".html": "text/html; charset=utf-8",
+        ".css":  "text/css; charset=utf-8",
+        ".js":   "application/javascript; charset=utf-8",
+        ".py":   "text/plain; charset=utf-8",
+        ".svg":  "image/svg+xml",
+        ".map":  "application/json; charset=utf-8",
+    }
+
+    def _try_static(self, path: str) -> bool:
+        """Serve a file from demo/ if the URL path is safe and the extension
+        is in the whitelist. Returns True iff a response was written."""
+        if path == "/":
+            self._file(_HERE / "index.html", "text/html; charset=utf-8")
+            return True
+        # Reject path traversal and absolute-elsewhere references upfront.
+        if ".." in path or "//" in path or "\x00" in path or len(path) > 256:
+            return False
+        # Strip leading slash, validate character set (POSIX-friendly only).
+        rel = path.lstrip("/")
+        if not all(c.isalnum() or c in "._-/" for c in rel):
+            return False
+        candidate = (_HERE / rel).resolve()
+        # Refuse anything outside demo/, even via symlinks.
+        try:
+            candidate.relative_to(_HERE.resolve())
+        except ValueError:
+            return False
+        if not candidate.is_file():
+            return False
+        ctype = self._STATIC_TYPES.get(candidate.suffix.lower())
+        if ctype is None:
+            return False
+        self._file(candidate, ctype)
+        return True
+
     def do_GET(self) -> None:
         path = urlparse(self.path).path
-        if path in ("/", "/index.html"):
-            self._file(_HERE / "index.html", "text/html; charset=utf-8")
-            return
-        if path == "/leaderboard" or path == "/leaderboard.html":
-            self._file(_HERE / "leaderboard.html", "text/html; charset=utf-8")
-            return
-        if path == "/demo.py":
-            self._file(_HERE / "demo.py", "text/plain; charset=utf-8")
-            return
         if path == "/favicon.ico":
             self.send_response(204); self._set_cors(); self.end_headers(); return
+        # Pretty alias kept from upstream so /leaderboard (no .html) resolves.
+        if path == "/leaderboard":
+            path = "/leaderboard.html"
+        # Static asset short-circuit — index.html, leaderboard.html,
+        # ranking.html, storm.css, storm.js, demo.py, etc. Path-traversal
+        # safe and limited to a content-type whitelist.
+        if self._try_static(path):
+            return
 
-        # Dynamic leaderboard routes (must precede static ROUTES lookup)
+        # Dynamic leaderboard routes (must precede static ROUTES lookup).
         if path.startswith("/api/leaderboard/model/"):
             name = path[len("/api/leaderboard/model/"):]
             try:

@@ -1,0 +1,389 @@
+/* ============================================================
+   Toki — atmospheric system
+   ------------------------------------------------------------
+   Volumetric storm clouds, branching lightning, rainfall,
+   wind streaks, spring-physics model shape, aura rings,
+   3D leaderboard sway. Pure CSS + a few JS hooks.
+
+   Activate by adding `class="storm-host"` to a positioned
+   element and calling `initStorm(el, opts)` from storm.js.
+   ============================================================ */
+
+.storm-host {
+  position: relative;
+  overflow: hidden;
+  /* perspective is what makes translateZ on cloud layers feel volumetric */
+  perspective: 800px;
+  perspective-origin: 50% 35%;
+  isolation: isolate;
+  /* baseline gradient — clouds sit on top of this, not instead of it */
+  background:
+    radial-gradient(1200px 800px at 70% 0%, rgba(80, 40, 90, .55), transparent 70%),
+    radial-gradient(1000px 700px at 10% 30%, rgba(40, 50, 110, .50), transparent 65%),
+    linear-gradient(180deg, #06080d 0%, #0c1018 60%, #0a0d15 100%);
+}
+
+.storm-host > .storm-content {
+  position: relative;
+  z-index: 10;            /* page content sits above all atmosphere layers */
+}
+
+/* ---------- volumetric cloud layers ---------- */
+.storm-clouds {
+  position: absolute;
+  inset: -200px -200px -200px -200px;     /* bleed past edges so drift never reveals seams */
+  transform-style: preserve-3d;
+  pointer-events: none;
+  z-index: 1;
+}
+.storm-clouds .cloud {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(40px);
+  will-change: transform, opacity;
+  opacity: .55;
+}
+/* layer 1 — deepest, slowest, biggest, darkest */
+.storm-clouds .cloud.l1 {
+  width: 1100px; height: 480px; top: -50px; left: -300px;
+  background: radial-gradient(closest-side, rgba(40, 25, 70, .85), rgba(20, 15, 35, 0));
+  transform: translateZ(-200px);
+  animation: driftCloud1 45s linear infinite;
+  opacity: .60;
+}
+.storm-clouds .cloud.l2 {
+  width: 900px; height: 420px; top: 80px; left: 25%;
+  background: radial-gradient(closest-side, rgba(30, 35, 90, .80), rgba(10, 15, 35, 0));
+  transform: translateZ(-150px);
+  animation: driftCloud2 38s linear infinite;
+  opacity: .55;
+}
+.storm-clouds .cloud.l3 {
+  width: 800px; height: 380px; top: -120px; right: -200px;
+  background: radial-gradient(closest-side, rgba(60, 30, 70, .75), rgba(20, 10, 30, 0));
+  transform: translateZ(-100px);
+  animation: driftCloud3 32s linear infinite;
+}
+.storm-clouds .cloud.l4 {
+  width: 700px; height: 360px; top: 200px; left: 10%;
+  background: radial-gradient(closest-side, rgba(80, 40, 100, .55), rgba(30, 15, 50, 0));
+  transform: translateZ(-50px);
+  animation: driftCloud4 28s linear infinite;
+}
+.storm-clouds .cloud.l5 {
+  width: 600px; height: 280px; top: 60px; right: 5%;
+  background: radial-gradient(closest-side, rgba(120, 60, 130, .45), rgba(40, 20, 60, 0));
+  transform: translateZ(0);
+  animation: driftCloud5 24s linear infinite;
+}
+.storm-clouds .cloud.l6 {
+  width: 480px; height: 220px; bottom: 60px; left: 30%;
+  background: radial-gradient(closest-side, rgba(70, 80, 140, .38), rgba(20, 30, 60, 0));
+  transform: translateZ(40px);
+  animation: driftCloud6 22s linear infinite;
+}
+.storm-clouds .cloud.l7 {
+  width: 360px; height: 160px; top: 320px; right: 25%;
+  background: radial-gradient(closest-side, rgba(160, 100, 200, .28), rgba(60, 30, 100, 0));
+  transform: translateZ(80px);
+  animation: driftCloud7 18s linear infinite;
+}
+
+@keyframes driftCloud1 { 0%   { transform: translate3d(0,0,-200px); }
+                         100% { transform: translate3d(220px,-20px,-200px); } }
+@keyframes driftCloud2 { 0%   { transform: translate3d(0,0,-150px); }
+                         100% { transform: translate3d(-180px,15px,-150px); } }
+@keyframes driftCloud3 { 0%   { transform: translate3d(0,0,-100px); }
+                         100% { transform: translate3d(-200px,-10px,-100px); } }
+@keyframes driftCloud4 { 0%   { transform: translate3d(0,0,-50px); }
+                         100% { transform: translate3d(180px,20px,-50px); } }
+@keyframes driftCloud5 { 0%   { transform: translate3d(0,0,0); }
+                         100% { transform: translate3d(-160px,-15px,0); } }
+@keyframes driftCloud6 { 0%   { transform: translate3d(0,0,40px); }
+                         100% { transform: translate3d(140px,10px,40px); } }
+@keyframes driftCloud7 { 0%   { transform: translate3d(0,0,80px); }
+                         100% { transform: translate3d(-120px,-5px,80px); } }
+
+/* storm intensity — the room gets darker as the storm picks up */
+.storm-host[data-intensity="high"] .cloud { opacity: .85; }
+.storm-host[data-intensity="low"]  .cloud { opacity: .40; }
+
+/* ---------- rainfall ---------- */
+.storm-rain {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 2;
+  opacity: 1;
+  transition: opacity .6s ease;
+}
+.storm-host[data-intensity="low"]  .storm-rain { opacity: .35; }
+.storm-host[data-intensity="off"]  .storm-rain { opacity: 0; }
+
+.rain-drop {
+  position: absolute;
+  width: 1.5px;
+  background: linear-gradient(transparent, rgba(180, 200, 255, .60));
+  border-radius: 1px;
+  transform: rotate(-15deg);
+  filter: blur(.3px);
+  will-change: transform;
+}
+@keyframes fall {
+  0%   { transform: translate3d(0,-150px,0) rotate(-15deg); opacity: 0; }
+  10%  { opacity: 1; }
+  100% { transform: translate3d(0,110vh,0) rotate(-15deg); opacity: .9; }
+}
+
+/* ---------- wind streaks ---------- */
+.storm-wind {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 3;
+}
+.wind-streak {
+  position: absolute;
+  height: 1px;
+  background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,.18) 50%, transparent 100%);
+  filter: blur(1px);
+  will-change: transform, opacity;
+}
+@keyframes windSweep {
+  0%   { transform: translateX(-300px); opacity: 0; }
+  20%  { opacity: 1; }
+  80%  { opacity: 1; }
+  100% { transform: translateX(110vw);  opacity: 0; }
+}
+
+/* ---------- branching lightning ---------- */
+.storm-lightning {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 4;
+}
+.storm-lightning svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+}
+/* a single strike instance — driven by JS adding/removing class .strike */
+.storm-lightning svg.strike {
+  animation: lightningFlash 360ms ease-out forwards;
+}
+.storm-lightning svg.strike path.bolt-main,
+.storm-lightning svg.strike path.bolt-branch {
+  animation: lightningDraw 110ms ease-out forwards;
+}
+@keyframes lightningDraw {
+  from { stroke-dashoffset: var(--len, 800); }
+  to   { stroke-dashoffset: 0; }
+}
+@keyframes lightningFlash {
+  0%   { opacity: 0; }
+  6%   { opacity: 1; }
+  18%  { opacity: 0.4; }
+  28%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+/* full-screen flash — toned down, sits behind everything */
+.storm-flash {
+  position: absolute; inset: 0; pointer-events: none; z-index: 0;
+  background: radial-gradient(ellipse at 50% 30%, rgba(220,225,255,.18) 0%, transparent 60%);
+  opacity: 0;
+}
+.storm-flash.fire {
+  animation: flashStrike 360ms ease-out;
+}
+@keyframes flashStrike {
+  0%   { opacity: 0; }
+  8%   { opacity: 1; }
+  30%  { opacity: 0.3; }
+  100% { opacity: 0; }
+}
+
+/* ============================================================
+   MODEL SHAPE — spring-physics avatar
+   ============================================================ */
+.model-shape-wrap {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: var(--ms-size, 120px);
+  height: var(--ms-size, 120px);
+  perspective: 600px;
+}
+.model-shape {
+  width: 70%; height: 70%;
+  background: linear-gradient(135deg, var(--ms-color-a, #4ade80), var(--ms-color-b, #16a34a));
+  border-radius: var(--ms-radius, 50%);
+  box-shadow:
+    0 0 30px var(--ms-glow, rgba(74,222,128,.55)),
+    inset 0 0 20px rgba(255,255,255,.15);
+  transform: scale(var(--ms-scale, 1)) rotate(var(--ms-rot, 0deg));
+  transition: background .35s ease, border-radius .45s cubic-bezier(.5,1.7,.5,1);
+  position: relative;
+  z-index: 2;
+}
+.model-shape::before {
+  content: ""; position: absolute; inset: 12%;
+  background: radial-gradient(circle at 35% 30%, rgba(255,255,255,.45), transparent 60%);
+  border-radius: inherit;
+  pointer-events: none;
+}
+/* verdict colour palettes */
+.model-shape-wrap[data-verdict="blocked"]  { --ms-color-a: #4ade80; --ms-color-b: #16a34a; --ms-glow: rgba(74,222,128,.6); --ms-radius: 50%; }
+.model-shape-wrap[data-verdict="bypassed"] { --ms-color-a: #ff6b6b; --ms-color-b: #ff4a4a; --ms-glow: rgba(255,74,74,.65); --ms-radius: 18%; }
+.model-shape-wrap[data-verdict="warn"]     { --ms-color-a: #fbbf24; --ms-color-b: #f59e0b; --ms-glow: rgba(251,191,36,.55); --ms-radius: 30%; }
+.model-shape-wrap[data-verdict="idle"]     { --ms-color-a: #475569; --ms-color-b: #334155; --ms-glow: rgba(100,116,139,.35); --ms-radius: 50%; }
+
+/* floor shadow */
+.model-shape-wrap::after {
+  content: ""; position: absolute; left: 50%; bottom: -8%;
+  width: 70%; height: 14%;
+  background: radial-gradient(ellipse at center, rgba(0,0,0,.55), rgba(0,0,0,0));
+  filter: blur(4px);
+  transform: translateX(-50%) scale(var(--ms-floor, 1));
+  z-index: 0;
+  transition: transform .25s ease, opacity .25s ease;
+  opacity: .8;
+}
+
+/* ---------- aura rings (cascading, infinite) ---------- */
+.model-shape-aura {
+  position: absolute; inset: 8%;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 1;
+}
+.aura-ring {
+  position: absolute; inset: 0;
+  border-radius: 50%;
+  border: 1px solid rgba(124, 58, 237, .45);
+  box-shadow: 0 0 12px rgba(124, 58, 237, .35);
+  animation: auraRing 2.0s ease-out infinite;
+  opacity: 0;
+}
+.aura-ring.r2 { animation-delay: .55s; border-color: rgba(192, 132, 252, .55); }
+.aura-ring.r3 { animation-delay: 1.1s; border-color: rgba(244, 114, 182, .55); }
+@keyframes auraRing {
+  0%   { transform: scale(1.0);  opacity: .8; }
+  70%  { opacity: .15; }
+  100% { transform: scale(1.55); opacity: 0; }
+}
+
+/* streak chip */
+.streak-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 10px; border-radius: 999px;
+  background: rgba(124, 58, 237, .14);
+  color: #c084fc;
+  font-size: 12px; font-weight: 700; letter-spacing: .04em;
+  border: 1px solid rgba(124, 58, 237, .35);
+}
+.streak-chip .flame { font-size: 14px; line-height: 1; }
+.streak-chip[data-tier="2"] { background: rgba(192, 132, 252, .16); color: #d8b4fe; border-color: rgba(192, 132, 252, .45); }
+.streak-chip[data-tier="3"] { background: rgba(244, 114, 182, .18); color: #fbcfe8; border-color: rgba(244, 114, 182, .55); }
+
+/* ============================================================
+   LEADERBOARD — 3D sway
+   ============================================================ */
+.lb-stage {
+  perspective: 1400px;
+  perspective-origin: 50% 30%;
+  padding: 32px 0 60px;
+}
+.lb-row {
+  display: grid;
+  grid-template-columns: 80px 130px 1fr 220px 240px;
+  gap: 22px;
+  align-items: center;
+  background: linear-gradient(180deg, rgba(20, 24, 38, .92), rgba(13, 16, 26, .92));
+  border: 1px solid rgba(50, 60, 90, .55);
+  border-radius: 18px;
+  padding: 22px 28px;
+  margin-bottom: 18px;
+  transform-style: preserve-3d;
+  transition: transform .35s cubic-bezier(.2,.8,.3,1.05),
+              box-shadow .35s ease,
+              border-color .35s ease;
+  box-shadow: 0 12px 40px rgba(0,0,0,.45);
+  will-change: transform;
+}
+
+/* per-rank tilt */
+.lb-row[data-rank="1"] { transform: rotateY( 8deg) rotateX( 1deg) translateZ(0); border-color: rgba(74,222,128,.55); }
+.lb-row[data-rank="2"] { transform: rotateY( 0deg) rotateX( 0deg) translateZ(0); }
+.lb-row[data-rank="3"] { transform: rotateY(-7deg) rotateX(-1deg) translateZ(0); border-color: rgba(255,120,120,.45); }
+.lb-row[data-rank="4"] { transform: rotateY(-9deg) rotateX(-2deg) translateZ(0); }
+
+/* hover lift */
+.lb-row:hover {
+  transform: rotateY(0) rotateX(0) translateZ(20px) scale(1.025);
+  box-shadow: 0 30px 70px rgba(0,0,0,.65), 0 0 0 1px rgba(124,58,237,.35);
+  z-index: 10;
+}
+
+.lb-rank {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 56px; font-weight: 800;
+  background: linear-gradient(180deg, #fff, rgba(160,170,200,.4));
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  text-align: center;
+  line-height: 1;
+}
+.lb-row[data-rank="1"] .lb-rank { background: linear-gradient(180deg, #4ade80, #16a34a); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.lb-row[data-rank="2"] .lb-rank { background: linear-gradient(180deg, #c0c5d0, #6b7280); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.lb-row[data-rank="3"] .lb-rank { background: linear-gradient(180deg, #fb923c, #c2410c); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.lb-row[data-rank="4"] .lb-rank { background: linear-gradient(180deg, #ff7e6b, #b91c1c); -webkit-background-clip: text; background-clip: text; color: transparent; }
+
+.lb-name {
+  font-size: 22px; font-weight: 800; letter-spacing: .02em; line-height: 1.2;
+}
+.lb-name .sub { display: block; font-size: 11.5px; font-weight: 500; color: var(--text-dim, #8a93b3); letter-spacing: .14em; text-transform: uppercase; margin-top: 4px; }
+
+.lb-bar-wrap {
+  display: flex; flex-direction: column; gap: 6px;
+}
+.lb-bar-row { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--text-dim, #8a93b3); font-family: "JetBrains Mono", monospace; }
+.lb-bar-row .lbl { width: 70px; text-transform: uppercase; letter-spacing: .08em; font-size: 10.5px; }
+.lb-bar { flex: 1; height: 8px; background: rgba(50,60,90,.4); border-radius: 999px; overflow: hidden; }
+.lb-bar > span { display: block; height: 100%; border-radius: 999px; transition: width 1.2s cubic-bezier(.2,.7,.2,1); }
+.lb-bar.score > span { background: linear-gradient(90deg, #ff4a4a 0%, #fbbf24 50%, #4ade80 100%); }
+.lb-bar.harm  > span { background: linear-gradient(90deg, #4ade80 0%, #fbbf24 50%, #ff4a4a 100%); }
+.lb-bar.leak  > span { background: linear-gradient(90deg, #4ade80 0%, #fb923c 50%, #ff4a4a 100%); }
+.lb-bar-row .num { width: 48px; text-align: right; color: #e6ecff; font-weight: 700; }
+
+.lb-shape-cell { display: grid; place-items: center; }
+
+/* significance matrix */
+.sig-matrix {
+  margin-top: 30px;
+  background: linear-gradient(180deg, rgba(15,18,30,.85), rgba(10,12,22,.85));
+  border: 1px solid rgba(50,60,90,.45);
+  border-radius: 14px;
+  padding: 24px 28px;
+}
+.sig-matrix h3 { font-size: 16px; margin-bottom: 14px; }
+.sig-table { width: 100%; border-collapse: separate; border-spacing: 6px; }
+.sig-table th, .sig-table td {
+  text-align: center; padding: 10px 12px; font-family: "JetBrains Mono", monospace; font-size: 13px;
+  background: rgba(20,24,38,.7); border-radius: 8px;
+  color: #e6ecff;
+}
+.sig-table th { color: var(--text-dim, #8a93b3); font-size: 11px; letter-spacing: .14em; text-transform: uppercase; font-weight: 700; }
+.sig-table td.diag { background: rgba(50,60,90,.25); color: var(--text-muted, #5b6485); }
+.sig-table td.sig  { background: rgba(74,222,128,.16); color: #4ade80; font-weight: 700; }
+.sig-table td.ns   { background: rgba(255,120,120,.10); color: #ff7e6b; font-weight: 700; }
+
+/* responsive */
+@media (max-width: 880px) {
+  .lb-row { grid-template-columns: 60px 1fr; gap: 14px; }
+  .lb-row .lb-bar-wrap, .lb-row .lb-shape-cell { grid-column: 1 / -1; }
+  .lb-row { transform: none !important; }
+}
