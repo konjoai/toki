@@ -196,7 +196,21 @@
       <label>α       <input type="number" id="optAlpha" value="0.05" step="0.01" min="0.001" max="0.5" /></label>
       <button class="btn" id="runBtn">⚡ Run leaderboard</button>
       <button class="btn btn-ghost" id="strikeBtn">⛈ Trigger lightning</button>
+      <button class="btn btn-ghost" id="splitToggle">⇄ Compare split</button>
     </div>
+    <div style="margin-top: 22px;" id="forecastStrip"></div>
+  </div>
+</section>
+
+<!-- Split-view comparison panel -->
+<section class="lb-section storm-content" id="splitSection" style="display:none;">
+  <div class="wrap">
+    <span class="hero-eyebrow" style="margin-bottom:10px;">Side-by-side weather</span>
+    <h2 style="font-size:26px; font-weight:800; margin-bottom:6px;">Storm vs Clear</h2>
+    <p class="lead" style="color:var(--text-dim); font-size:14px; max-width:680px; margin-bottom:16px;">
+      Two independent atmospheres. Choose a model for each side and watch both forecasts evolve.
+    </p>
+    <div id="splitMount" class="split-view" style="min-height:480px;"></div>
   </div>
 </section>
 
@@ -249,6 +263,37 @@
    ============================================================ */
 initStorm(document.body, { rainCount: 120, windCount: 12, ambientLightning: true });
 setStormIntensity(document.body, "normal");
+
+// Tier-2 atmospherics
+const decisions = mountDecisionNodes(document.body, {
+  labels: ["INTENT", "POLICY", "REFUSE", "VERIFY", "EMIT"],
+  positions: [
+    { x: 10, y: 12 }, { x: 28, y: 6  }, { x: 50, y: 10 },
+    { x: 72, y: 7  }, { x: 90, y: 14 },
+  ],
+});
+const forecast = mountForecast(document.getElementById("forecastStrip"), 5);
+enableClickBurst(document.body);
+
+let autoIntensity = "normal";
+const dial = mountStormDial({
+  initial: 55,
+  onChange: (pct, manual) => {
+    const lvl = manual ? intensityLevelFromPct(pct) : autoIntensity;
+    setStormIntensity(document.body, lvl);
+    if (pct > 88) triggerLightning(document.body);
+  },
+});
+setInterval(() => {
+  if (dial.getIntensityPct() >= 70 && Math.random() < 0.5) triggerLightning(document.body);
+}, 2400);
+
+// Hook ranking results into forecast (one slot per row's pass/fail).
+function recordForecastFromRanked(ranked) {
+  ranked.forEach((m) => forecast.record(m.score >= 0.85));
+  // Light up the decision path on each ranked row processed.
+  setTimeout(() => decisions.flashAll(), 80);
+}
 
 const $  = (id) => document.getElementById(id);
 const $$ = (sel) => [...document.querySelectorAll(sel)];
@@ -389,6 +434,15 @@ async function runLeaderboard() {
 
   renderLeaderboard(ranked);
   renderSignificance(ranked, sig);
+  recordForecastFromRanked(ranked);
+  // sync auto intensity to overall pass rate
+  const passes = ranked.filter(r => r.score >= 0.85).length;
+  autoIntensity = passes >= 2 ? "low" : passes === 1 ? "normal" : "high";
+  if (!dial.isManual()) {
+    const pctFor = { off: 0, low: 22, normal: 55, high: 90 };
+    dial.setIntensityPct(pctFor[autoIntensity] ?? 55);
+    setStormIntensity(document.body, autoIntensity);
+  }
 
   const elapsed = (performance.now() - startMs).toFixed(0);
   $("metaWhen").textContent   = new Date().toLocaleTimeString();
@@ -413,7 +467,7 @@ function renderLeaderboard(ranked) {
     row.className = "lb-row";
     row.dataset.rank = rank;
     row.innerHTML = `
-      <div class="lb-rank">#${rank}</div>
+      <div class="lb-rank" data-rank-target="${rank}">#<span data-rank-num>0</span></div>
       <div class="lb-name">${meta.label}<span class="sub">${meta.sub}</span></div>
       <div class="lb-bar-wrap">
         <div class="lb-bar-row"><span class="lbl">score</span>   <div class="lb-bar score"><span style="width:0%"></span></div><span class="num" data-num="score">${m.score.toFixed(2)}</span></div>
@@ -443,14 +497,32 @@ function renderLeaderboard(ranked) {
     const verdict = m.score >= 0.85 ? "blocked"
                   : m.score >= 0.5  ? "warn"
                   : "bypassed";
+    // Safety shield on each model shape (fires for blocked verdicts).
+    const shield = mountSafetyShield(wrap);
+
     setTimeout(() => {
       ctl.setVerdict(verdict);
       const blockedCount = Math.round(m.refusal * m.total);
       ctl.setStreak(blockedCount);
+      applyShapeMorph(wrap, blockedCount);
       const chip = row.querySelector("[data-streak]");
       renderStreakChip(chip, blockedCount);
+      if (verdict === "blocked") shield.fire();
+      else                       shield.clear();
     }, 200 + i * 220);
+
+    // Animated rank counter (0 → rank, eased cubic)
+    const rankNumEl = row.querySelector("[data-rank-num]");
+    if (rankNumEl) {
+      setTimeout(() => animateCounter(rankNumEl, rank, { duration: 700 }),
+                 120 + i * 220);
+    }
   });
+
+  // Scroll-reveal: top half from the left, bottom half from the right.
+  const lbRows = [...stage.querySelectorAll(".lb-row")];
+  if (window.__rankingIO) window.__rankingIO.disconnect();
+  window.__rankingIO = revealOnScroll(lbRows, { stagger: 110, direction: "auto" });
 }
 
 function renderSignificance(ranked, sig) {
@@ -490,6 +562,89 @@ function renderSignificance(ranked, sig) {
 
 /* ---------- wiring ---------- */
 $("runBtn").addEventListener("click", runLeaderboard);
+
+/* ---------- split-view toggle ---------- */
+let splitMounted = false;
+function buildPane(host, defaultModel) {
+  host.innerHTML = `
+    <div class="pane-head">
+      <select>
+        <option value="safe">SAFE — always refuses</option>
+        <option value="mixed">MIXED — refuses on triggers</option>
+        <option value="unsafe">UNSAFE — always jailbroken</option>
+      </select>
+    </div>
+    <div class="pane-shape">
+      <div class="model-shape-wrap" data-verdict="idle" style="--ms-size: 140px;"></div>
+    </div>
+    <div class="pane-stats">
+      <div class="pane-stat"><span class="k">score</span><span class="v" data-k="score">—</span></div>
+      <div class="pane-stat"><span class="k">refusal</span><span class="v" data-k="refusal">—</span></div>
+      <div class="pane-stat"><span class="k">harm</span><span class="v" data-k="harm">—</span></div>
+    </div>
+  `;
+  const sel = host.querySelector("select");
+  sel.value = defaultModel;
+  const wrap   = host.querySelector(".model-shape-wrap");
+  const ctl    = mountSpringShape(wrap);
+  const shield = mountSafetyShield(wrap);
+  const stat   = (k) => host.querySelector(`[data-k="${k}"]`);
+  const pane   = host.closest(".storm-host");
+
+  async function refresh() {
+    const m = sel.value;
+    const ref = m === "safe" ? "unsafe" : "safe";
+    if (!STATE.live) {
+      ["score","refusal","harm"].forEach(k => stat(k).textContent = "—");
+      return;
+    }
+    try {
+      const d = await api("POST", "/api/compare-models",
+                          { model_a: m, model_b: ref, seed: 42, size: 12 });
+      const mine = d.model_a;
+      stat("score").textContent   = mine.mean_score.toFixed(2);
+      stat("refusal").textContent = (mine.refusal_rate * 100 | 0) + "%";
+      stat("harm").textContent    = (mine.harmful_rate * 100 | 0) + "%";
+      const verdict = mine.mean_score >= 0.85 ? "blocked"
+                    : mine.mean_score >= 0.5  ? "warn" : "bypassed";
+      ctl.setVerdict(verdict);
+      const streak = Math.round(mine.refusal_rate * mine.total_prompts || 0);
+      ctl.setStreak(streak);
+      applyShapeMorph(wrap, streak);
+      const scoreCell = stat("score").closest(".pane-stat");
+      scoreCell.classList.remove("score-good", "score-warn", "score-bad");
+      scoreCell.classList.add(mine.mean_score >= 0.85 ? "score-good"
+                            : mine.mean_score >= 0.5  ? "score-warn" : "score-bad");
+      if (verdict === "blocked") { shield.fire(); if (pane) triggerLightning(pane); }
+      else                       { shield.clear(); }
+    } catch (_) {
+      ["score","refusal","harm"].forEach(k => stat(k).textContent = "—");
+    }
+  }
+  sel.addEventListener("change", refresh);
+  refresh();
+}
+
+$("splitToggle").addEventListener("click", () => {
+  const sec = $("splitSection");
+  const mount = $("splitMount");
+  const showing = sec.style.display === "block";
+  if (showing) {
+    sec.style.display = "none";
+    return;
+  }
+  sec.style.display = "block";
+  if (!splitMounted) {
+    mountSplitView(mount, {
+      leftIntensity:  "normal",
+      rightIntensity: "low",
+      populateLeft:  (host) => buildPane(host, "unsafe"),
+      populateRight: (host) => buildPane(host, "safe"),
+    });
+    splitMounted = true;
+  }
+  sec.scrollIntoView({ behavior: "smooth", block: "start" });
+});
 
 // Keyboard shortcut: 'L' triggers a lightning bolt for fun.
 document.addEventListener("keydown", (e) => {

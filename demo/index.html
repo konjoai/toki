@@ -4,6 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>陶器 toki — the storm test</title>
+<link rel="stylesheet" href="storm.css" />
 <style>
 :root {
   --ink:        #e8e9f3;
@@ -711,11 +712,29 @@ body {
     </article>
   </section>
 
+  <!-- ===== TIER-2 EXTRAS — additive, don't fight the PR layout ===== -->
+  <section class="extras-row" style="display:grid; gap:18px; grid-template-columns:auto 1fr; align-items:center; margin: 8px 0 16px;">
+    <div class="forecast-host" id="forecastStrip"></div>
+    <div style="display:flex; gap:12px; align-items:center; justify-content:flex-end;">
+      <button class="strike" type="button" id="compareToggle"
+        style="position:relative; bottom:auto; transform:none; padding:10px 18px; font-size:13px;">
+        Compare ⇄
+      </button>
+    </div>
+  </section>
+
+  <!-- Split-view comparison panel: hidden by default, toggled by Compare. -->
+  <section id="splitViewPanel" class="split-view" style="display:none; margin-top: 14px;"></section>
+
   <footer class="status">
     <span><span class="pulse" id="livePulse"></span><span id="liveText">connecting…</span></span>
     <span id="versionText">toki · adversarial robustness lab</span>
   </footer>
 </div>
+
+<!-- Tier-2 atmosphere overlay: dial-driven extra rain/wind/lightning + decision nodes -->
+<div class="storm-host" id="extraStorm" aria-hidden="true"
+     style="position:fixed; inset:0; pointer-events:none; z-index:2; background:transparent;"></div>
 
 <script>
 const API_BASE = window.location.origin.startsWith("http")
@@ -835,6 +854,10 @@ async function strike() {
       modelEl.classList.add("cracked");
       scoreCard.classList.add("fail");
     }
+    // Tier-2 dispatch: drive shield + forecast + decision nodes + storm boost
+    window.dispatchEvent(new CustomEvent("toki:verdict", {
+      detail: { blocked: !!res.hardened.blocked, score: finalScore, raw: res.raw, hardened: res.hardened },
+    }));
   } catch (e) {
     stop();
     document.getElementById("rawBody").textContent = `ERROR: ${e.message}`;
@@ -861,5 +884,193 @@ promptEl.addEventListener("keydown", (e) => {
   }, 80);
 })();
 </script>
+
+<script src="storm.js"></script>
+<script>
+/* ============================================================
+   TIER 2 — dial, shield, decision nodes, forecast, click-burst,
+   shape morph, split-view comparison.  All additive; the PR's
+   own atmospherics keep running underneath.
+   ============================================================ */
+(function () {
+  const overlay = document.getElementById("extraStorm");
+  if (!overlay) return;
+
+  // 1) Light overlay atmosphere — driven by the dial.
+  initStorm(overlay, { rainCount: 40, windCount: 4, ambientLightning: false });
+  setStormIntensity(overlay, "low");
+
+  // 2) Storm dial — manual override + auto on dblclick.
+  let autoLevel = "low";
+  const dial = mountStormDial({
+    initial: 25,
+    onChange: (pct, manual) => {
+      const level = manual ? intensityLevelFromPct(pct) : autoLevel;
+      setStormIntensity(overlay, level);
+      // also dim/brighten the PR's existing static atmosphere
+      const heavy = pct > 65;
+      document.documentElement.style.setProperty("--toki-rain-boost", heavy ? "1.4" : "1");
+      if (pct > 88) triggerLightning(overlay);
+    },
+  });
+  // Schedule extra ambient strikes at high intensity.
+  setInterval(() => {
+    if (dial.getIntensityPct() >= 70 && Math.random() < 0.45) triggerLightning(overlay);
+  }, 2600);
+
+  // 3) Decision nodes overlaid on the upper page band.
+  const decisions = mountDecisionNodes(overlay, {
+    labels: ["INTENT", "POLICY", "REFUSE", "VERIFY", "EMIT"],
+    positions: [
+      { x: 14, y: 18 }, { x: 32, y: 10 }, { x: 50, y: 16 },
+      { x: 68, y: 12 }, { x: 86, y: 20 },
+    ],
+  });
+
+  // 4) Forecast strip
+  const forecast = mountForecast(document.getElementById("forecastStrip"), 5);
+
+  // 5) Safety shield over the PR's #model
+  const modelEl = document.getElementById("model");
+  let shield = null;
+  if (modelEl) {
+    // make the model element a positioning context for the shield
+    if (getComputedStyle(modelEl).position === "static") modelEl.style.position = "relative";
+    shield = mountSafetyShield(modelEl);
+    // Reset shield when the model crack/pass classes are removed by a fresh strike.
+    const obs = new MutationObserver(() => {
+      if (!modelEl.classList.contains("pass") && shield) shield.clear();
+    });
+    obs.observe(modelEl, { attributes: true, attributeFilter: ["class"] });
+  }
+
+  // 6) Click-burst rain — anywhere on the page outside controls.
+  enableClickBurst(overlay);
+
+  // 7) React to verdicts dispatched by the PR's strike() flow.
+  window.addEventListener("toki:verdict", (ev) => {
+    const { blocked, score } = ev.detail || {};
+    forecast.record(!!blocked);
+    if (blocked) {
+      if (shield) shield.fire();
+      decisions.flashPath([0, 1, 2, 3, 4]);   // full chain — VERIFIED
+      triggerLightning(overlay);
+      autoLevel = "low";
+    } else {
+      decisions.flashPath([0, 1]);            // chain breaks early
+      // storm rages briefly on a bypass
+      const prev = overlay.dataset.intensity;
+      setStormIntensity(overlay, "high");
+      setTimeout(() => setStormIntensity(overlay, prev || "low"), 4200);
+      // extra rolling thunder
+      for (let i = 0; i < 3; i++) setTimeout(() => triggerLightning(overlay), i * 280);
+      autoLevel = "normal";
+    }
+    if (!dial.isManual()) {
+      // Auto-sync dial to current auto level.
+      const pctFor = { off: 0, low: 22, normal: 55, high: 90 };
+      dial.setIntensityPct(pctFor[autoLevel] ?? 50);
+    }
+  });
+
+  // 8) Split-view comparison panel
+  const splitBtn = document.getElementById("compareToggle");
+  const splitEl  = document.getElementById("splitViewPanel");
+  let splitMounted = false;
+
+  function buildPane(host, defaultModel) {
+    host.innerHTML = `
+      <div class="pane-head">
+        <select>
+          <option value="safe">SAFE — always refuses</option>
+          <option value="mixed">MIXED — refuses on triggers</option>
+          <option value="unsafe">UNSAFE — always jailbroken</option>
+        </select>
+      </div>
+      <div class="pane-shape">
+        <div class="model-shape-wrap" data-verdict="idle" style="--ms-size: 120px;"></div>
+      </div>
+      <div class="pane-stats">
+        <div class="pane-stat"><span class="k">score</span><span class="v" data-k="score">—</span></div>
+        <div class="pane-stat"><span class="k">refusal</span><span class="v" data-k="refusal">—</span></div>
+        <div class="pane-stat"><span class="k">harm</span><span class="v" data-k="harm">—</span></div>
+      </div>
+    `;
+    const sel = host.querySelector("select");
+    sel.value = defaultModel;
+    const wrap = host.querySelector(".model-shape-wrap");
+    const ctl = mountSpringShape(wrap);
+    const shield = mountSafetyShield(wrap);
+    const stat = (k) => host.querySelector(`[data-k="${k}"]`);
+
+    async function refresh() {
+      const m = sel.value;
+      try {
+        // Use the /api/compare-models endpoint with a fixed reference (safe vs current)
+        const ref = m === "safe" ? "unsafe" : "safe";
+        const d = await fetch(`${API_BASE}/api/compare-models`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ model_a: m, model_b: ref, seed: 42, size: 12 }),
+        }).then(r => r.json());
+        const mine = d.model_a;
+        stat("score").textContent = mine.mean_score.toFixed(2);
+        stat("refusal").textContent = (mine.refusal_rate * 100 | 0) + "%";
+        stat("harm").textContent = (mine.harmful_rate * 100 | 0) + "%";
+        // classify
+        const wrapEl = host.querySelector(".model-shape-wrap");
+        const verdict = mine.mean_score >= 0.85 ? "blocked" : mine.mean_score >= 0.5 ? "warn" : "bypassed";
+        ctl.setVerdict(verdict);
+        const streak = Math.round(mine.refusal_rate * mine.total_prompts || 0);
+        ctl.setStreak(streak);
+        applyShapeMorph(wrapEl, streak);
+        // colour-class the score cell
+        const scoreCell = stat("score").closest(".pane-stat");
+        scoreCell.classList.remove("score-good", "score-warn", "score-bad");
+        scoreCell.classList.add(mine.mean_score >= 0.85 ? "score-good" : mine.mean_score >= 0.5 ? "score-warn" : "score-bad");
+        if (verdict === "blocked") shield.fire();
+        else                       shield.clear();
+        // Lightning on this pane only
+        const pane = host.closest(".storm-host");
+        if (pane) triggerLightning(pane);
+      } catch (e) {
+        stat("score").textContent = "—";
+        stat("refusal").textContent = "—";
+        stat("harm").textContent = "—";
+      }
+    }
+    sel.addEventListener("change", refresh);
+    refresh();
+  }
+
+  splitBtn?.addEventListener("click", () => {
+    if (splitEl.style.display === "none" || !splitEl.style.display) {
+      splitEl.style.display = "grid";
+      if (!splitMounted) {
+        mountSplitView(splitEl, {
+          leftIntensity:  "normal",
+          rightIntensity: "low",
+          populateLeft:  (host) => buildPane(host, "unsafe"),
+          populateRight: (host) => buildPane(host, "safe"),
+        });
+        splitMounted = true;
+      }
+      splitBtn.style.background = "rgba(155,124,255,.25)";
+      splitBtn.style.boxShadow  = "0 0 0 1px rgba(155,124,255,.6)";
+    } else {
+      splitEl.style.display = "none";
+      splitBtn.style.background = "";
+      splitBtn.style.boxShadow  = "";
+    }
+  });
+
+  // 9) Hotkey: L → bolt; D → toggle decision nodes glow
+  document.addEventListener("keydown", (e) => {
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    if (e.key.toLowerCase() === "l") { triggerLightning(overlay); decisions.flashRandomPath(); }
+  });
+})();
+</script>
+
 </body>
 </html>
