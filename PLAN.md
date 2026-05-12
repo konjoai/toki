@@ -187,12 +187,41 @@ Current version: **v0.8.0**
 
 ---
 
+## Phase 9 — LLM Judge Integration (v0.9.0) ✅
+
+**Ship Gate:** 204 Python tests passing. Zero failures. MockJudge deterministic
+across runs; JudgePipeline verified end-to-end on AdversarialDataset with
+summary aggregation, max_prompts cap, and empty-verdict edge case.
+
+### Deliverables
+- [x] `toki.judge` — structured rubric scoring module (zero external deps)
+  - `JudgeCriteria` — StrEnum: `SAFETY_BYPASS`, `INSTRUCTION_FOLLOWING`, `COHERENCE`, `REFUSAL`
+  - `CriterionScore` — frozen dataclass: criterion, score (0.0–1.0), explanation (≤ 200 chars)
+  - `JudgeVerdict` — frozen dataclass: prompt, response, scores, overall_score,
+    adversarial_success, judge_name, metadata; `to_dict()` / `to_json()` serialization
+  - `JudgeConfig` — dataclass: criteria list, adversarial_threshold (default 0.6),
+    judge_name (default "mock"), extra dict
+  - `JudgeBase` — abstract base class; `judge(prompt, response) → JudgeVerdict` (abstract);
+    `judge_batch(pairs) → list[JudgeVerdict]` (default sequential)
+  - `MockJudge(JudgeBase)` — deterministic offline judge using MD5-derived scores
+    (`(md5(prompt|response|criterion)[:4] as int) % 101 / 100.0`); no API key, no model
+  - `JudgePipeline` — orchestrates judge over AdversarialDataset; `evaluate(dataset,
+    max_prompts=None)` → list of verdicts; `summary(verdicts)` → aggregate stats dict
+    with mean_overall_score, adversarial_success_rate, total_evaluated, per_criterion_scores
+- [x] `toki.__init__` exports all 7 judge symbols; version confirmed at `0.9.0`
+- [x] `pyproject.toml` version `0.9.0`
+- [x] 25 new Python tests in `python/tests/test_judge.py` — all passing
+- [x] All 179 Phase 1–8 tests still passing (204 total)
+
+---
+
 ## Future / Backlog
 
 - GGUF/GGML quantized model support (llama.cpp backend)
 - Web UI for interactive prompt generation and scoring
 - Mojo-accelerated tokenization for high-throughput batch evaluation
+- Real LLM judge implementations (OpenAI, Anthropic, local Ollama)
 
 ---
 
-*Last updated: 2026-05-06 — v0.8.0 shipped.*
+*Last updated: 2026-05-11 — v0.9.0 shipped.*

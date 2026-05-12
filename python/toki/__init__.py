@@ -51,6 +51,15 @@ from toki.integration import (
     LatencyMetrics,
     has_kairu,
 )
+from toki.judge import (
+    JudgeCriteria,
+    CriterionScore,
+    JudgeVerdict,
+    JudgeConfig,
+    JudgeBase,
+    MockJudge,
+    JudgePipeline,
+)
 
 __all__ = [
     "AdversarialGenerator",
@@ -99,4 +108,11 @@ __all__ = [
     "QualityScores",
     "LatencyMetrics",
     "has_kairu",
+    "JudgeCriteria",
+    "CriterionScore",
+    "JudgeVerdict",
+    "JudgeConfig",
+    "JudgeBase",
+    "MockJudge",
+    "JudgePipeline",
 ]
