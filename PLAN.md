@@ -4,7 +4,7 @@
 > Adversarial fine-tuning lab for small language models.  
 > “Break the model. Fix the model. Prove it.”
 
-Current version: **v0.8.0**
+Current version: **v1.0.0**
 
 ---
 
@@ -215,6 +215,32 @@ summary aggregation, max_prompts cap, and empty-verdict edge case.
 
 ---
 
+## Phase 10 — Red Team Campaign (v1.0.0) [COMPLETE] ✅
+
+**Ship Gate:** 251 Python tests passing. Zero failures. Full pipeline verified
+end-to-end: generate → mutate → judge → report. v1.0.0 milestone.
+
+### Deliverables
+- [x] `toki.campaign` — orchestration module (zero external deps)
+  - `CampaignConfig` — dataclass: categories, prompts_per_category, population_size,
+    n_generations, mutation_rate, elite_fraction, judge_name, adversarial_threshold,
+    judge_criteria, output_dir, campaign_name, seed, max_prompts_to_judge
+  - `CampaignResult` — dataclass: all timing, count, and score fields;
+    `to_dict()`, `to_json()`, `to_html()` (self-contained dark-mode HTML, no CDN),
+    `save(output_dir) → (json_path, html_path)`
+  - `RedTeamCampaign` — main orchestrator seeded from config.seed;
+    `run()` never raises — exceptions logged, result always returned;
+    `_judge_score(prompt) → float` fitness fn for PromptMutator;
+    `_top_prompts(verdicts, n=5) → list[str]` each truncated to 200 chars
+  - `run_campaign(config=None) → CampaignResult` — module-level convenience function
+- [x] `toki campaign run` CLI subcommand: `--config`, `--output`, `--seed`, `--name`
+- [x] `toki.__init__` exports `RedTeamCampaign`, `CampaignConfig`, `CampaignResult`, `run_campaign`; version bumped to `1.0.0`
+- [x] `pyproject.toml` version bumped to `1.0.0`
+- [x] 25 new Python tests in `python/tests/test_campaign.py` — all passing
+- [x] All 226 Phase 1–9 tests still passing (251 total)
+
+---
+
 ## Future / Backlog
 
 - GGUF/GGML quantized model support (llama.cpp backend)
@@ -224,4 +250,4 @@ summary aggregation, max_prompts cap, and empty-verdict edge case.
 
 ---
 
-*Last updated: 2026-05-11 — v0.9.0 shipped.*
+*Last updated: 2026-05-11 — v1.0.0 shipped.*

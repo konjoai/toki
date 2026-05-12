@@ -1,7 +1,7 @@
 """Toki — adversarial fine-tuning lab for small LLMs."""
 from __future__ import annotations
 
-__version__ = "0.10.0"
+__version__ = "1.0.0"
 
 from toki.generate import AdversarialGenerator
 from toki.evaluate import RobustnessEvaluator
@@ -60,6 +60,12 @@ from toki.judge import (
     MockJudge,
     JudgePipeline,
 )
+from toki.campaign import (
+    CampaignConfig,
+    CampaignResult,
+    RedTeamCampaign,
+    run_campaign,
+)
 
 __all__ = [
     "AdversarialGenerator",
@@ -115,4 +121,8 @@ __all__ = [
     "JudgeBase",
     "MockJudge",
     "JudgePipeline",
+    "CampaignConfig",
+    "CampaignResult",
+    "RedTeamCampaign",
+    "run_campaign",
 ]

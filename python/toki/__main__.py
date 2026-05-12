@@ -349,6 +349,39 @@ def cmd_distill(args) -> None:
         print(f"\n  Corpus written to {args.output}")
 
 
+def cmd_campaign(args) -> None:
+    from toki.campaign import CampaignConfig, run_campaign
+
+    config = CampaignConfig(
+        output_dir=args.output,
+        seed=args.seed,
+        campaign_name=args.name,
+    )
+    if args.config:
+        cfg_data = json.loads(Path(args.config).read_text())
+        for k, v in cfg_data.items():
+            if hasattr(config, k):
+                setattr(config, k, v)
+
+    result = run_campaign(config)
+
+    print(f"\n{'=' * 60}")
+    print(f"Campaign:              {result.campaign_name}")
+    print(f"Seed:                  {result.config.seed}")
+    print(f"Started:               {result.started_at}")
+    print(f"Duration (s):          {result.duration_seconds:.2f}")
+    print(f"Prompts generated:     {result.n_generated}")
+    print(f"Prompts mutated:       {result.n_mutated}")
+    print(f"Prompts judged:        {result.n_judged}")
+    print(f"Adversarial success:   {result.adversarial_success_rate:.2%}")
+    print(f"Mean overall score:    {result.mean_overall_score:.4f}")
+    print(f"{'=' * 60}")
+
+    json_path, html_path = result.save(result.config.output_dir)
+    print(f"\n  JSON report → {json_path}")
+    print(f"  HTML report → {html_path}")
+
+
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="toki", description="Adversarial fine-tuning lab")
     sub = ap.add_subparsers(dest="command", required=True)
@@ -443,6 +476,18 @@ def build_parser() -> argparse.ArgumentParser:
     p_rep.add_argument("--format", type=str, default="both", choices=["json", "html", "both"])
     p_rep.add_argument("--output-dir", type=str, default="experiments/reports")
 
+    # campaign (full red team campaign)
+    p_camp = sub.add_parser("campaign", help="Run a full Red Team Campaign")
+    p_camp_sub = p_camp.add_subparsers(dest="campaign_command", required=True)
+    p_camp_run = p_camp_sub.add_parser("run", help="Execute campaign pipeline")
+    p_camp_run.add_argument("--config", type=str, default=None,
+                            help="Path to campaign config JSON")
+    p_camp_run.add_argument("--output", type=str, default="results/campaigns",
+                            help="Output directory for reports")
+    p_camp_run.add_argument("--seed", type=int, default=42)
+    p_camp_run.add_argument("--name", type=str, default="campaign",
+                            help="Campaign name used in report filenames")
+
     # distill (corpus distillation)
     p_distill = sub.add_parser(
         "distill",
@@ -497,6 +542,8 @@ def main(argv=None) -> None:
         cmd_rank(args)
     elif args.command == "distill":
         cmd_distill(args)
+    elif args.command == "campaign":
+        cmd_campaign(args)
 
 
 if __name__ == "__main__":
