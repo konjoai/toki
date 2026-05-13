@@ -215,14 +215,26 @@
 </section>
 
 <!-- ============ LEADERBOARD ============ -->
+<!-- ============ THREAT INTEL DASHBOARD (Phase 11 — Tier 3 UI) ============ -->
+<section class="lb-section storm-content" id="threatIntel">
+  <div class="wrap" style="display:grid; gap:18px;">
+    <!-- safety gate state machine -->
+    <div id="safetyGate" class="entrance"></div>
+  </div>
+</section>
+
 <!-- ============ COVERAGE RADAR (Phase 11 — P1) ============ -->
 <section class="lb-section storm-content" id="coverage">
   <div class="wrap">
     <div class="lb-header">
       <h2>Coverage map</h2>
-      <div class="lb-meta">
-        total <b id="covTotal">—</b> · blind spots <b id="covBlind">—</b> ·
-        consistency <b id="covConsistency">—</b>
+      <div class="lb-meta" style="display:flex; align-items:center; gap:16px;">
+        <span>total <b id="covTotal">—</b> · blind spots <b id="covBlind">—</b></span>
+        <span style="opacity:.6;">·</span>
+        <span style="display:inline-flex; align-items:center; gap:14px;">
+          <span id="covKappaGauge" style="position:relative;"></span>
+          <span id="covConsistency" style="font-family: 'JetBrains Mono', monospace; font-size:12.5px; color:var(--text-dim);">—</span>
+        </span>
       </div>
     </div>
     <div class="coverage-grid">
@@ -250,6 +262,10 @@
           Blind spots
         </h3>
         <ul id="covBlindList" class="blind-list"></ul>
+        <h3 style="font-size:14px; letter-spacing:.14em; color:var(--text-dim); text-transform:uppercase; margin: 18px 0 6px;">
+          Multilingual axes
+        </h3>
+        <div id="langChips" class="lang-chips"></div>
       </div>
     </div>
     <style>
@@ -403,51 +419,50 @@ $("strikeBtn").addEventListener("click", () => triggerLightning(document.body));
 
 /* ============================================================
    PHASE 11 — coverage radar + consistency badges
+   PHASE 11 / Tier 3 — animated radar, kappa gauge, safety gate,
+                        flying chips, scroll-entrance stagger
    ============================================================ */
+
+// Lazy-init the animated radar against our existing SVG.
+const radarCtl = animateRadar({
+  svgEl:     $("coverageRadar"),
+  polygonEl: $("covPolygon"),
+  vertsEl:   $("covVerts"),
+  labelsEl:  $("covLabels"),
+  stagger:   60,
+});
+
+// Lazy-init the kappa ring gauge.
+const kappaGauge = mountKappaGauge($("covKappaGauge"), { radius: 32, label: "FLEISS κ" });
+
+// Lazy-init the CI safety gate.
+const safetyGate = mountSafetyGate($("safetyGate"), {
+  initial: "warn",
+  initialPayload: {
+    headline: "WAITING",
+    detail:   "No baseline yet — POST <b>/api/ci/baseline</b> to lock one in.",
+  },
+});
+
+// Most recent coverage payload — used by chips → radar highlight wiring.
+let lastCoverage = null;
+
 async function refreshCoverage() {
   if (!STATE.live) return;
   try {
     const d = await api("POST", "/api/coverage",
       { seed: 42, size: 36, include_multilingual: true, blind_threshold: 0.05 });
+    lastCoverage = d;
 
-    // Update polygon + axis vertices/labels
-    $("covPolygon").setAttribute("points", d.radar_polygon);
-    const vertsEl = $("covVerts"); vertsEl.innerHTML = "";
-    const labelsEl = $("covLabels"); labelsEl.innerHTML = "";
-    const cx = 100, cy = 100, labelRadius = 18;
-
-    d.radar_points.forEach((p) => {
-      // vertex dot
-      const c = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-      c.setAttribute("cx", p.x);  c.setAttribute("cy", p.y);
-      c.setAttribute("r", "1.4");
-      c.setAttribute("fill", "#c4b5fd");
-      c.setAttribute("opacity", "0.85");
-      vertsEl.appendChild(c);
-
-      // label pushed outward — only for category and a few key buckets
-      const showLabel = (p.axis === "category") ||
-                        (p.axis === "encoding" && p.bucket !== "plain") ||
-                        (p.axis === "language" && p.bucket !== "other" && p.bucket !== "en");
-      if (!showLabel) return;
-      const dx = p.x - cx, dy = p.y - cy;
-      const dist = Math.hypot(dx, dy) || 1;
-      const scale = (dist + labelRadius) / dist;
-      const lx = cx + dx * scale;
-      const ly = cy + dy * scale;
-      const t = document.createElementNS("http://www.w3.org/2000/svg", "text");
-      t.setAttribute("x", lx);  t.setAttribute("y", ly);
-      t.setAttribute("text-anchor", "middle");
-      t.setAttribute("dominant-baseline", "middle");
-      t.textContent = p.bucket;
-      labelsEl.appendChild(t);
-    });
+    // Animated radar — vertices draw in clockwise with staggered scale-in pop;
+    // blind-spot vertices get the red pulse via .blind class.
+    radarCtl.render(d);
 
     // Header counters
     $("covTotal").textContent = d.total;
     $("covBlind").textContent = d.blind_spots.length;
 
-    // Blind-spot list
+    // Blind-spot list — red highlight for each gap.
     const ul = $("covBlindList");
     ul.innerHTML = "";
     if (d.blind_spots.length === 0) {
@@ -462,6 +477,22 @@ async function refreshCoverage() {
         ul.appendChild(li);
       });
     }
+
+    // Flying multilingual chips — built from the real coverage axes.
+    const langItems = [];
+    const langOrder = ["es", "fr", "de"];
+    langOrder.forEach((bucket) => {
+      const count = d.axes.language[bucket] || 0;
+      if (count <= 0) return;
+      langItems.push({ axis: "language", bucket, label: bucket.toUpperCase(), count });
+    });
+    ["base64", "rot13", "unicode_zwsp"].forEach((bucket) => {
+      const count = d.axes.encoding[bucket] || 0;
+      if (count <= 0) return;
+      const label = bucket === "unicode_zwsp" ? "ZW-UNICODE" : bucket.toUpperCase();
+      langItems.push({ axis: "encoding", bucket, label, count, encoding: bucket });
+    });
+    mountLangChips($("langChips"), langItems, { radar: radarCtl });
   } catch (e) {
     console.warn("coverage refresh failed:", e);
   }
@@ -472,26 +503,59 @@ async function refreshConsistency() {
   try {
     const d = await api("POST", "/api/consistency",
       { seed: 42, size: 18, threshold: 0.6 });
-    $("covConsistency").innerHTML =
-      `κ=${d.mean_kappa.toFixed(3)}` +
-      (d.unreliable_count > 0
-        ? ` <span class="consistency-pill bad">${d.unreliable_count}/${d.entries.length} unreliable</span>`
-        : ` <span class="consistency-pill good">all judges agree</span>`);
-    // Attach consistency badges to leaderboard rows by category.
-    const byCat = {};
-    d.entries.forEach((e) => {
-      if (!byCat[e.category]) byCat[e.category] = { total: 0, unreliable: 0, kappaSum: 0 };
-      byCat[e.category].total += 1;
-      byCat[e.category].unreliable += e.unreliable ? 1 : 0;
-      byCat[e.category].kappaSum += e.kappa;
-    });
-    document.querySelectorAll(".lb-row").forEach((row) => {
-      // we don't have a category on a row; consistency badge is dataset-wide.
-      // Tag the leaderboard meta with a single overall consistency pill.
-    });
+
+    // Animate the kappa ring gauge to the new value.
+    kappaGauge.setKappa(d.mean_kappa);
+
+    // Header text + warning shake for unreliable entries.
+    const unreliable = d.unreliable_count;
+    const total = d.entries.length;
+    if (unreliable > 0) {
+      $("covConsistency").innerHTML =
+        `${unreliable}/${total} unreliable ` +
+        `<span class="unreliable-icon" title="κ < ${d.threshold} on at least one test case">!</span>`;
+    } else {
+      $("covConsistency").innerHTML =
+        `<span style="color:var(--safe);">all judges agree</span>` +
+        ` <span style="opacity:.55;">(threshold κ ≥ ${d.threshold})</span>`;
+    }
   } catch (e) {
     console.warn("consistency refresh failed:", e);
   }
+}
+
+// Drive the safety-gate state machine from the latest ranking result.
+// We don't have a stored baseline in this demo, so we synthesise one:
+// safe baseline expected to PASS, unsafe expected to FAIL, mixed → WARN.
+function refreshSafetyGate(ranked) {
+  if (!safetyGate) return;
+  const safe   = ranked.find((r) => r.name === "safe");
+  const mixed  = ranked.find((r) => r.name === "mixed");
+  const unsafe = ranked.find((r) => r.name === "unsafe");
+
+  // Pick the overall state from the worst result.
+  const worst = ranked.reduce((acc, r) => (r.score < acc.score ? r : acc), ranked[0]);
+  let state, payload;
+  if (worst.score >= 0.85) {
+    state = "pass";
+    payload = {
+      headline: "PASS",
+      detail:   `worst category at <b>${worst.score.toFixed(2)}</b> · all categories within 2% tolerance`,
+    };
+  } else if (worst.score >= 0.5) {
+    state = "warn";
+    payload = {
+      headline: "WARNING",
+      detail:   `worst category <b>${worst.name}</b> at <b>${worst.score.toFixed(2)}</b> · within tolerance but trending down`,
+    };
+  } else {
+    state = "fail";
+    payload = {
+      headline: "FAIL",
+      detail:   `<b>${worst.name}</b> regressed to <b>${worst.score.toFixed(2)}</b> · CI gate would block this merge`,
+    };
+  }
+  safetyGate.setState(state, payload);
 }
 
 /* ============================================================
@@ -599,6 +663,8 @@ async function runLeaderboard() {
   // Phase 11 — fire-and-forget coverage + consistency refreshes
   refreshCoverage();
   refreshConsistency();
+  // Tier 3 — drive the safety gate from live ranking results
+  refreshSafetyGate(ranked);
   // sync auto intensity to overall pass rate
   const passes = ranked.filter(r => r.score >= 0.85).length;
   autoIntensity = passes >= 2 ? "low" : passes === 1 ? "normal" : "high";
@@ -673,6 +739,8 @@ function renderLeaderboard(ranked) {
       renderStreakChip(chip, blockedCount);
       if (verdict === "blocked") shield.fire();
       else                       shield.clear();
+      // Tier 3 — threat-injection particle burst from this row
+      emitVerdictParticles(row, verdict === "warn" ? "bypassed" : verdict);
     }, 200 + i * 220);
 
     // Animated rank counter (0 → rank, eased cubic)
@@ -817,6 +885,12 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
+// Tier 3 — scroll-entrance stagger across the major sections.
+(function wireScrollEntrance() {
+  const sections = [...document.querySelectorAll("section.lb-section, section.hero")];
+  if (sections.length) scrollEntrance(sections, { stagger: 80 });
+})();
+
 // Auto-run once if the server is up after page load.
 window.addEventListener("load", async () => {
   setTimeout(async () => {
@@ -826,6 +900,13 @@ window.addEventListener("load", async () => {
       refreshCoverage();
       refreshConsistency();
       runLeaderboard();
+    } else {
+      // Server offline — show a clear OFFLINE state on the gate so the
+      // dashboard doesn't sit on the default "WARNING / no baseline" line.
+      safetyGate.setState("warn", {
+        headline: "OFFLINE",
+        detail:   "demo server unreachable — start <b>python demo/server.py</b> to drive the dashboard",
+      });
     }
   }, 500);
 });

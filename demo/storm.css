@@ -774,3 +774,354 @@
 .model-shape-wrap[data-morphing="1"] .model-shape {
   filter: drop-shadow(0 0 18px var(--ms-glow, rgba(124,58,237,.6)));
 }
+
+/* ============================================================
+   TIER 3 — threat-intelligence dashboard
+   Particle bursts · radar vertex animation · safety-gate state
+   machine · kappa ring gauge · multilingual flying chips ·
+   scroll-entrance stagger.
+
+   All animations use the Konjo palette — no new colour tokens.
+   ============================================================ */
+
+/* ---------- threat-injection particle burst ---------- */
+.particle-burst {
+  position: absolute;
+  pointer-events: none;
+  width: 0; height: 0;
+  z-index: 50;
+}
+.particle {
+  position: absolute;
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  pointer-events: none;
+  will-change: transform, opacity;
+  transform: translate3d(0,0,0);
+  filter: blur(.4px);
+}
+.particle.blocked  { background: radial-gradient(circle, #ffd0c2, #ff7e6b 50%, #ff4a4a 100%);
+                     box-shadow: 0 0 8px rgba(255,74,74,.7); }
+.particle.bypassed { background: radial-gradient(circle, #ffe9b8, #fbbf24 60%, #fb923c 100%);
+                     box-shadow: 0 0 6px rgba(251,191,36,.55); }
+.particle.error    { background: radial-gradient(circle, rgba(220,225,255,.95), rgba(120,130,160,.55) 60%, transparent 100%);
+                     box-shadow: 0 0 4px rgba(120,130,160,.5); width:3px; height:3px; }
+
+/* ---------- radar vertex animation ---------- */
+.radar-vertex {
+  transform-origin: center;
+  transform-box: fill-box;
+  opacity: 0;
+  animation: vertex-pop 380ms cubic-bezier(.34, 1.56, .64, 1) forwards;
+}
+@keyframes vertex-pop {
+  0%   { opacity: 0; transform: scale(0.05); }
+  60%  { opacity: 1; transform: scale(1.4); }
+  100% { opacity: 1; transform: scale(1.0); }
+}
+.radar-vertex.blind {
+  fill: #ff5d6c !important;
+  animation: vertex-pop 380ms cubic-bezier(.34, 1.56, .64, 1) forwards,
+             blind-pulse 1.8s 380ms ease-in-out infinite;
+}
+@keyframes blind-pulse {
+  0%, 100% { stroke-width: 0;   stroke: rgba(255,74,74,0);   r: 1.6; }
+  50%      { stroke-width: 1.5; stroke: rgba(255,74,74,.85); r: 2.8; }
+}
+.radar-vertex:hover {
+  cursor: pointer;
+}
+.radar-vertex-tooltip {
+  position: absolute;
+  background: rgba(13, 16, 26, .96);
+  border: 1px solid rgba(155, 124, 255, .55);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font: 600 12px/1.3 "JetBrains Mono", monospace;
+  color: var(--text, #e6ecff);
+  pointer-events: none;
+  z-index: 200;
+  white-space: nowrap;
+  box-shadow: 0 8px 24px rgba(0,0,0,.55);
+  opacity: 0;
+  transform: translate3d(0, 6px, 0);
+  transition: opacity .15s ease, transform .15s ease;
+}
+.radar-vertex-tooltip.visible {
+  opacity: 1;
+  transform: translate3d(0, 0, 0);
+}
+.radar-vertex-tooltip .axis-name {
+  display: block; font-size: 9.5px; color: var(--text-dim, #8a93b3);
+  letter-spacing: .14em; text-transform: uppercase; margin-bottom: 2px;
+}
+.radar-vertex-tooltip .bucket-name {
+  color: #c4b5fd;
+}
+.radar-vertex-tooltip.blind { border-color: rgba(255,93,108,.65); }
+.radar-vertex-tooltip.blind .bucket-name { color: #ff7e6b; }
+
+#covPolygon {
+  opacity: 0;
+  animation: poly-fade 600ms cubic-bezier(.23,1,.32,1) 1.2s forwards;
+}
+@keyframes poly-fade { to { opacity: 1; } }
+
+/* ---------- coverage slice sweep (animated fill) ---------- */
+.coverage-slice {
+  fill: rgba(155, 124, 255, .22);
+  transform-origin: 100px 100px;
+  /* clip-path sweeps via stroke-dashoffset on an overlay arc */
+}
+.coverage-slice.sweeping {
+  animation: slice-sweep 600ms cubic-bezier(.23, 1, .32, 1) forwards;
+}
+@keyframes slice-sweep {
+  from { stroke-dashoffset: 360; }
+  to   { stroke-dashoffset: 0; }
+}
+.coverage-slice.retracting {
+  animation: slice-retract 320ms ease-in forwards;
+}
+@keyframes slice-retract {
+  0%   { fill: rgba(155, 124, 255, .22); }
+  50%  { fill: rgba(255, 74, 74, .45); }
+  100% { fill: rgba(155, 124, 255, 0); }
+}
+
+/* ---------- safety-gate state machine ---------- */
+.gate-panel {
+  display: flex; align-items: center; gap: 18px;
+  padding: 16px 22px;
+  background: linear-gradient(180deg, rgba(15,18,30,.85), rgba(10,12,22,.85));
+  border: 1px solid rgba(70, 80, 110, .45);
+  border-radius: 14px;
+  position: relative;
+  overflow: hidden;
+  transition: border-color .35s ease, box-shadow .35s ease, transform .35s ease;
+}
+.gate-panel .gate-state-trail {
+  position: absolute; inset: 0; pointer-events: none;
+  display: flex; gap: 4px; padding: 4px;
+  z-index: 1;
+}
+.gate-panel .gate-state-trail .trail-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: rgba(155, 124, 255, .12);
+  align-self: flex-end;
+  flex: none;
+}
+
+.gate-orb {
+  position: relative;
+  width: 64px; height: 64px;
+  border-radius: 50%;
+  display: grid; place-items: center;
+  flex: none;
+  background: radial-gradient(circle at 35% 30%, rgba(255,255,255,.18), rgba(60,70,100,.2) 70%);
+  border: 1px solid rgba(155, 124, 255, .35);
+  transition: background .35s, box-shadow .35s, transform .35s;
+}
+.gate-orb svg { width: 30px; height: 30px; }
+.gate-panel[data-state="pass"]    .gate-orb {
+  background: radial-gradient(circle at 35% 30%, rgba(140,255,180,.5), rgba(22,163,74,.45) 70%);
+  box-shadow: 0 0 28px rgba(74,222,128,.55), inset 0 0 12px rgba(74,222,128,.3);
+  border-color: rgba(74,222,128,.6);
+}
+.gate-panel[data-state="warn"] .gate-orb {
+  background: radial-gradient(circle at 35% 30%, rgba(255,224,140,.55), rgba(251,146,60,.4) 70%);
+  box-shadow: 0 0 22px rgba(251,191,36,.5), inset 0 0 12px rgba(251,191,36,.3);
+  border-color: rgba(251,191,36,.55);
+  animation: gate-warn-pulse 1.4s ease-in-out infinite;
+}
+.gate-panel[data-state="fail"]    .gate-orb {
+  background: radial-gradient(circle at 35% 30%, rgba(255,180,180,.55), rgba(255,74,74,.5) 70%);
+  box-shadow: 0 0 26px rgba(255,74,74,.7), inset 0 0 14px rgba(255,74,74,.45);
+  border-color: rgba(255,74,74,.7);
+}
+@keyframes gate-warn-pulse {
+  0%, 100% { transform: scale(1);    box-shadow: 0 0 18px rgba(251,191,36,.4),  inset 0 0 10px rgba(251,191,36,.25); }
+  50%      { transform: scale(1.06); box-shadow: 0 0 30px rgba(251,191,36,.65), inset 0 0 14px rgba(251,191,36,.4);  }
+}
+
+.gate-panel.transitioning-fail {
+  animation: gate-fail-shake 600ms cubic-bezier(.36,.07,.19,.97) 1;
+}
+@keyframes gate-fail-shake {
+  10%, 90% { transform: translateX(-2px) scale(0.98); }
+  20%, 80% { transform: translateX(+4px) scale(0.97); }
+  30%, 50%, 70% { transform: translateX(-8px) scale(0.96); }
+  40%, 60% { transform: translateX(+8px) scale(0.96); }
+  100% { transform: translateX(0) scale(1); }
+}
+.gate-panel.transitioning-pass {
+  animation: gate-pass-burst 720ms cubic-bezier(.23,1,.32,1) 1;
+}
+@keyframes gate-pass-burst {
+  0%   { transform: scale(0.94); box-shadow: 0 0 0 0 rgba(74,222,128,.0); }
+  40%  { transform: scale(1.04); box-shadow: 0 0 40px 6px rgba(74,222,128,.65); }
+  100% { transform: scale(1);    box-shadow: 0 12px 40px rgba(0,0,0,.4); }
+}
+
+.gate-body { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 0; }
+.gate-title {
+  font: 800 11px/1 "JetBrains Mono", monospace;
+  letter-spacing: .18em; text-transform: uppercase;
+  color: var(--text-dim, #8a93b3);
+}
+.gate-headline {
+  font-size: 20px; font-weight: 800; letter-spacing: -.01em;
+  color: var(--text, #e6ecff);
+}
+.gate-panel[data-state="pass"] .gate-headline { color: var(--safe, #4ade80); }
+.gate-panel[data-state="warn"] .gate-headline { color: var(--warn-2, #fbbf24); }
+.gate-panel[data-state="fail"] .gate-headline { color: var(--threat, #ff4a4a); }
+.gate-detail {
+  font: 500 13px/1.3 -apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter", system-ui, sans-serif;
+  color: var(--text-dim, #8a93b3);
+}
+.gate-detail b { color: var(--text, #e6ecff); }
+
+.gate-states {
+  display: flex; gap: 8px; padding-left: 18px; border-left: 1px solid rgba(70,80,110,.3); align-self: stretch;
+  align-items: center;
+}
+.gate-pip {
+  display: flex; align-items: center; gap: 6px;
+  font: 700 10.5px/1 "JetBrains Mono", monospace; letter-spacing: .14em; text-transform: uppercase;
+  color: var(--text-muted, #5b6485);
+  opacity: .55;
+  transition: opacity .25s, color .25s;
+}
+.gate-pip .pip-dot {
+  width: 8px; height: 8px; border-radius: 50%; background: currentColor;
+}
+.gate-pip.active { opacity: 1; }
+.gate-panel[data-state="pass"] .gate-pip[data-pip="pass"]    { color: var(--safe, #4ade80); }
+.gate-panel[data-state="warn"] .gate-pip[data-pip="warn"]    { color: var(--warn-2, #fbbf24); }
+.gate-panel[data-state="fail"] .gate-pip[data-pip="fail"]    { color: var(--threat, #ff4a4a); }
+
+/* ---------- consistency kappa ring gauge ---------- */
+.kappa-gauge {
+  display: inline-grid; place-items: center;
+  position: relative;
+  width: 80px; height: 80px;
+}
+.kappa-gauge svg {
+  width: 100%; height: 100%;
+  transform: rotate(-90deg);
+}
+.kappa-gauge .track {
+  fill: none;
+  stroke: rgba(70, 80, 110, .35);
+  stroke-width: 6;
+}
+.kappa-gauge .arc {
+  fill: none;
+  stroke-width: 6;
+  stroke-linecap: round;
+  stroke: var(--safe, #4ade80);
+  transition: stroke-dashoffset 1.0s cubic-bezier(.23, 1, .32, 1),
+              stroke .35s ease;
+}
+.kappa-gauge[data-tier="red"]   .arc { stroke: var(--threat,  #ff4a4a); }
+.kappa-gauge[data-tier="amber"] .arc { stroke: var(--warn-2,  #fbbf24); }
+.kappa-gauge[data-tier="green"] .arc { stroke: var(--safe,    #4ade80); }
+.kappa-gauge .kappa-value {
+  position: absolute;
+  font: 800 18px/1 "JetBrains Mono", monospace;
+  color: var(--text, #e6ecff);
+  letter-spacing: -.02em;
+}
+.kappa-gauge .kappa-label {
+  position: absolute;
+  bottom: -16px; left: 50%; transform: translateX(-50%);
+  font: 700 9.5px/1 "JetBrains Mono", monospace;
+  letter-spacing: .18em; text-transform: uppercase;
+  color: var(--text-dim, #8a93b3);
+  white-space: nowrap;
+}
+
+.unreliable-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  background: rgba(255, 74, 74, .14);
+  color: var(--threat, #ff4a4a);
+  font: 800 12px/1 "JetBrains Mono", monospace;
+  margin-left: 4px;
+  animation: shake-warn 400ms cubic-bezier(.36,.07,.19,.97) infinite;
+}
+@keyframes shake-warn {
+  0%, 100% { transform: translateX(0)    rotate(0deg); }
+  20%      { transform: translateX(-1px) rotate(-6deg); }
+  40%      { transform: translateX(+2px) rotate(+6deg); }
+  60%      { transform: translateX(-1px) rotate(-4deg); }
+  80%      { transform: translateX(+1px) rotate(+4deg); }
+}
+
+/* ---------- multilingual flying chips ---------- */
+.lang-chips {
+  display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px;
+}
+.lang-chip {
+  position: relative;
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 5px 11px;
+  background: rgba(155, 124, 255, .12);
+  border: 1px solid rgba(155, 124, 255, .35);
+  border-radius: 999px;
+  color: #c4b5fd;
+  font: 700 11px/1 "JetBrains Mono", monospace;
+  letter-spacing: .12em; text-transform: uppercase;
+  transform: translate3d(60px, 0, 0);
+  opacity: 0;
+  cursor: pointer;
+  will-change: transform, opacity;
+  transition: transform .25s cubic-bezier(.34,1.56,.64,1),
+              background .25s, box-shadow .25s, color .25s;
+}
+.lang-chip.flown {
+  animation: chip-fly-in 400ms cubic-bezier(.22, 1, .36, 1) forwards;
+  /* per-chip delay set inline */
+}
+@keyframes chip-fly-in {
+  0%   { opacity: 0; transform: translate3d(60px, 0, 0); }
+  100% { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+.lang-chip[data-encoding="base64"] { color: #fbbf24; border-color: rgba(251,191,36,.45); background: rgba(251,191,36,.10); }
+.lang-chip[data-encoding="rot13"]  { color: #fb923c; border-color: rgba(251,146,60,.45); background: rgba(251,146,60,.10); }
+.lang-chip[data-encoding="unicode_zwsp"] { color: #ff7e6b; border-color: rgba(255,93,108,.45); background: rgba(255,93,108,.10); }
+.lang-chip:hover {
+  transform: translate3d(0, -2px, 0) scale(1.07);
+  box-shadow: 0 0 16px currentColor;
+  filter: brightness(1.15);
+}
+.lang-chip.linked-active {
+  background: currentColor !important;
+  color: var(--bg-0, #06080d) !important;
+  box-shadow: 0 0 22px currentColor;
+}
+.lang-chip .count {
+  opacity: .65;
+  font-weight: 500;
+}
+
+.radar-vertex.linked-active {
+  fill: #ffffff !important;
+  filter: drop-shadow(0 0 8px #ffffff);
+  r: 5;
+}
+
+/* ---------- scroll-entrance stagger ---------- */
+.entrance {
+  opacity: 0;
+  transform: translate3d(0, 28px, 0);
+  will-change: transform, opacity;
+  transition: opacity 500ms cubic-bezier(.22, 1, .36, 1),
+              transform 500ms cubic-bezier(.22, 1, .36, 1);
+}
+.entrance.in {
+  opacity: 1;
+  transform: translate3d(0, 0, 0);
+}

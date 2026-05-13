@@ -807,6 +807,385 @@
     return { containerEl, leftHost, rightHost };
   }
 
+  // =========================================================
+  // TIER 3 — threat-intelligence dashboard
+  //  · emitVerdictParticles · mountKappaGauge · animateRadar
+  //  · mountSafetyGate · mountLangChips · scrollEntrance
+  // =========================================================
+
+  // ---------- threat-injection particle burst ----------
+  // The "row" can be any positioned element; we burst from its centre
+  // and let particles drift past its edges. The host of the burst is the
+  // row's closest *positioned* ancestor — so make sure it is positioned
+  // (or pass an explicit container via opts.container).
+  function emitVerdictParticles(rowEl, verdict, opts) {
+    if (!rowEl) return;
+    opts = opts || {};
+    const container = opts.container || rowEl.offsetParent || rowEl.parentElement || document.body;
+
+    // Pick parameters per verdict.
+    const variant = (verdict === "bypassed" || verdict === "bypass") ? "bypassed"
+                  : (verdict === "error" || verdict === "err") ? "error"
+                  : "blocked";   // default
+    const N        = variant === "error" ? 14 : 24;
+    const duration = variant === "blocked" ? 500 : variant === "bypassed" ? 900 : 380;
+    const speedMin = variant === "blocked" ? 70  : variant === "bypassed" ? 18  : 32;
+    const speedMax = variant === "blocked" ? 180 : variant === "bypassed" ? 52  : 70;
+    // gravity in px/ms^2; negative = upward
+    const gravity  = variant === "blocked" ? 0.0007
+                    : variant === "bypassed" ? -0.00010
+                    : 0.00003;
+
+    // Burst origin = row centre, relative to container.
+    const cRect = container.getBoundingClientRect();
+    const rRect = rowEl.getBoundingClientRect();
+    const ox = (rRect.left + rRect.width  / 2) - cRect.left;
+    const oy = (rRect.top  + rRect.height / 2) - cRect.top;
+
+    // Reuse a single burst host so they don't pile up in the DOM.
+    let host = container.querySelector(":scope > .particle-burst");
+    if (!host) {
+      host = document.createElement("div");
+      host.className = "particle-burst";
+      if (getComputedStyle(container).position === "static") {
+        container.style.position = "relative";
+      }
+      container.appendChild(host);
+    }
+
+    for (let i = 0; i < N; i++) {
+      const p = document.createElement("div");
+      p.className = "particle " + variant;
+      // Angle distribution per variant.
+      let ang;
+      if (variant === "blocked") {
+        // full circular spread
+        ang = (i / N) * Math.PI * 2 + (Math.random() - 0.5) * 0.4;
+      } else if (variant === "bypassed") {
+        // drift mostly upward — narrow cone above
+        ang = -Math.PI / 2 + (Math.random() - 0.5) * 0.9;
+      } else {
+        // sideways scatter — tight horizontal cone
+        ang = (Math.random() < 0.5 ? 0 : Math.PI) + (Math.random() - 0.5) * 0.5;
+      }
+      const speed = speedMin + Math.random() * (speedMax - speedMin);
+      const vx = Math.cos(ang) * speed / 1000;   // px / ms
+      const vy = Math.sin(ang) * speed / 1000;
+      const size = variant === "error" ? 3 + Math.random() * 2 : 4 + Math.random() * 4;
+      p.style.left = ox + "px";
+      p.style.top  = oy + "px";
+      p.style.width  = size + "px";
+      p.style.height = size + "px";
+      host.appendChild(p);
+      animateParticle(p, vx, vy, gravity, duration);
+    }
+  }
+
+  function animateParticle(el, vx, vy, gravity, duration) {
+    const t0 = performance.now();
+    let x = 0, y = 0;
+    function tick(now) {
+      const t = now - t0;
+      if (t >= duration) {
+        if (el.parentNode) el.parentNode.removeChild(el);
+        return;
+      }
+      x = vx * t;
+      y = vy * t + 0.5 * gravity * t * t;
+      const alpha = 1 - (t / duration);
+      el.style.transform = `translate3d(${x.toFixed(1)}px, ${y.toFixed(1)}px, 0)`;
+      el.style.opacity = alpha.toFixed(3);
+      requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
+  }
+
+  // ---------- kappa ring gauge ----------
+  // mountKappaGauge(containerEl, opts) → { setKappa, el }
+  function mountKappaGauge(containerEl, opts) {
+    if (!containerEl) return null;
+    opts = opts || {};
+    const r = opts.radius || 36;
+    const cx = 40, cy = 40;
+    const circumference = 2 * Math.PI * r;
+
+    containerEl.classList.add("kappa-gauge");
+    containerEl.innerHTML = `
+      <svg viewBox="0 0 80 80" aria-hidden="true">
+        <circle class="track" cx="${cx}" cy="${cy}" r="${r}"/>
+        <circle class="arc"   cx="${cx}" cy="${cy}" r="${r}"
+                stroke-dasharray="${circumference}"
+                stroke-dashoffset="${circumference}"/>
+      </svg>
+      <div class="kappa-value">—</div>
+      <div class="kappa-label">${opts.label || "κ"}</div>
+    `;
+    const arc = containerEl.querySelector(".arc");
+    const val = containerEl.querySelector(".kappa-value");
+
+    function tierFor(k) {
+      if (k < 0.4)  return "red";
+      if (k < 0.6)  return "amber";
+      return "green";
+    }
+    function setKappa(k) {
+      const clamped = Math.max(0, Math.min(1, +k || 0));
+      containerEl.dataset.tier = tierFor(clamped);
+      arc.setAttribute("stroke-dashoffset", (circumference * (1 - clamped)).toFixed(2));
+      val.textContent = clamped.toFixed(2);
+    }
+    return { el: containerEl, setKappa };
+  }
+
+  // ---------- animated radar vertices ----------
+  // Replaces the static vertex-renderer in ranking.html. Returns an object
+  // with helpers to refresh and to set the linked-active state on a bucket.
+  function animateRadar(opts) {
+    const svg     = opts.svgEl;
+    const polyEl  = opts.polygonEl;
+    const vertsEl = opts.vertsEl;
+    const labelsEl = opts.labelsEl;
+    if (!svg || !polyEl || !vertsEl) return null;
+
+    let tooltipEl = null;
+    function ensureTooltip() {
+      if (tooltipEl) return tooltipEl;
+      tooltipEl = document.createElement("div");
+      tooltipEl.className = "radar-vertex-tooltip";
+      document.body.appendChild(tooltipEl);
+      return tooltipEl;
+    }
+
+    let pointsCache = [];
+    let stagger = opts.stagger ?? 60;
+
+    function render(coverage) {
+      pointsCache = coverage.radar_points || [];
+      polyEl.setAttribute("points", coverage.radar_polygon || "");
+
+      // Reset
+      vertsEl.innerHTML = "";
+      if (labelsEl) labelsEl.innerHTML = "";
+
+      const blindSet = new Set(coverage.blind_spots || []);
+      pointsCache.forEach((p, i) => {
+        const key = `${p.axis}.${p.bucket}`;
+        const c = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+        c.setAttribute("class", "radar-vertex" + (blindSet.has(key) ? " blind" : ""));
+        c.setAttribute("data-axis", p.axis);
+        c.setAttribute("data-bucket", p.bucket);
+        c.setAttribute("data-key", key);
+        c.setAttribute("cx", p.x);
+        c.setAttribute("cy", p.y);
+        c.setAttribute("r", "1.6");
+        c.setAttribute("fill", "#c4b5fd");
+        c.style.animationDelay = (i * stagger) + "ms";
+        vertsEl.appendChild(c);
+
+        // hover handlers
+        c.addEventListener("mouseenter", (e) => {
+          const tip = ensureTooltip();
+          tip.classList.toggle("blind", blindSet.has(key));
+          const share = (coverage.shares?.[p.axis]?.[p.bucket] ?? 0) * 100;
+          const count = coverage.axes?.[p.axis]?.[p.bucket] ?? 0;
+          tip.innerHTML = `
+            <span class="axis-name">${p.axis}</span>
+            <span class="bucket-name">${p.bucket}</span>
+            <span>${count} prompts · ${share.toFixed(1)}%${blindSet.has(key) ? " · ⚠ blind" : ""}</span>
+          `;
+          tip.classList.add("visible");
+          c.setAttribute("r", "4");
+        });
+        c.addEventListener("mousemove", (e) => {
+          const tip = ensureTooltip();
+          tip.style.left = (e.clientX + 14) + "px";
+          tip.style.top  = (e.clientY + 14) + "px";
+        });
+        c.addEventListener("mouseleave", () => {
+          c.setAttribute("r", "1.6");
+          const tip = ensureTooltip();
+          tip.classList.remove("visible");
+        });
+      });
+
+      // Render axis labels (text elements). The caller passes a labelsEl;
+      // we only label "interesting" buckets so the radar stays readable.
+      if (labelsEl) {
+        pointsCache.forEach((p) => {
+          const show =
+            (p.axis === "category") ||
+            (p.axis === "encoding" && p.bucket !== "plain") ||
+            (p.axis === "language" && p.bucket !== "other" && p.bucket !== "en") ||
+            (p.axis === "severity" && p.bucket === "critical");
+          if (!show) return;
+          const dx = p.x - 100, dy = p.y - 100;
+          const dist = Math.hypot(dx, dy) || 1;
+          const scale = (dist + 16) / dist;
+          const t = document.createElementNS("http://www.w3.org/2000/svg", "text");
+          t.setAttribute("x", (100 + dx * scale).toFixed(2));
+          t.setAttribute("y", (100 + dy * scale).toFixed(2));
+          t.setAttribute("text-anchor", "middle");
+          t.setAttribute("dominant-baseline", "middle");
+          t.textContent = p.bucket;
+          labelsEl.appendChild(t);
+        });
+      }
+    }
+
+    function highlightBucket(axis, bucket, on) {
+      const key = `${axis}.${bucket}`;
+      const dot = vertsEl.querySelector(`.radar-vertex[data-key="${CSS.escape(key)}"]`);
+      if (!dot) return;
+      dot.classList.toggle("linked-active", !!on);
+    }
+
+    return { render, highlightBucket };
+  }
+
+  // ---------- safety-gate state machine ----------
+  function mountSafetyGate(containerEl, opts) {
+    if (!containerEl) return null;
+    opts = opts || {};
+    containerEl.classList.add("gate-panel");
+    containerEl.dataset.state = "warn";
+    containerEl.innerHTML = `
+      <div class="gate-orb" aria-hidden="true">
+        <svg viewBox="0 0 32 36">
+          <path d="M16 1 L29 6 V18 C29 26 22 33 16 35 C10 33 3 26 3 18 V6 Z"
+                fill="rgba(255,255,255,.10)" stroke="currentColor" stroke-width="2" stroke-linejoin="round"
+                color="currentColor" />
+          <path class="gate-glyph" fill="none" stroke="currentColor" stroke-width="2.4"
+                stroke-linecap="round" stroke-linejoin="round" d="M10 18 L14 22 L22 13" />
+        </svg>
+      </div>
+      <div class="gate-body">
+        <div class="gate-title">CI Safety Gate</div>
+        <div class="gate-headline" data-headline>WAITING</div>
+        <div class="gate-detail" data-detail>No baseline checked yet.</div>
+      </div>
+      <div class="gate-states">
+        <span class="gate-pip" data-pip="pass"><span class="pip-dot"></span>pass</span>
+        <span class="gate-pip" data-pip="warn"><span class="pip-dot"></span>warn</span>
+        <span class="gate-pip" data-pip="fail"><span class="pip-dot"></span>fail</span>
+      </div>
+    `;
+    const head = containerEl.querySelector("[data-headline]");
+    const det  = containerEl.querySelector("[data-detail]");
+
+    function setGlyph(state) {
+      const path = containerEl.querySelector(".gate-glyph");
+      if (!path) return;
+      if (state === "fail") path.setAttribute("d", "M11 11 L21 21 M21 11 L11 21");
+      else if (state === "warn") path.setAttribute("d", "M16 9 L16 18 M16 22 L16 23.5");
+      else path.setAttribute("d", "M10 18 L14 22 L22 13");
+    }
+    function setActivePip(state) {
+      containerEl.querySelectorAll(".gate-pip").forEach((p) => {
+        p.classList.toggle("active", p.dataset.pip === state);
+      });
+    }
+
+    let lastState = "warn";
+    function setState(state, payload) {
+      payload = payload || {};
+      const valid = state === "pass" || state === "warn" || state === "fail";
+      if (!valid) state = "warn";
+
+      const prev = lastState;
+      lastState = state;
+      containerEl.dataset.state = state;
+      setGlyph(state);
+      setActivePip(state);
+
+      if (state === "pass") {
+        head.textContent = payload.headline || "PASS";
+        det.innerHTML = payload.detail || "all categories within tolerance";
+      } else if (state === "warn") {
+        head.textContent = payload.headline || "WARNING";
+        det.innerHTML = payload.detail || "no baseline yet · run <b>toki ci-baseline</b> to start";
+      } else {
+        head.textContent = payload.headline || "FAIL";
+        det.innerHTML = payload.detail || "regression detected";
+      }
+
+      // Transition animations
+      containerEl.classList.remove("transitioning-fail", "transitioning-pass");
+      void containerEl.offsetWidth;
+      if (prev === "pass" && state === "fail") containerEl.classList.add("transitioning-fail");
+      if (prev === "fail" && state === "pass") containerEl.classList.add("transitioning-pass");
+    }
+
+    // initialise default state
+    setState(opts.initial || "warn", opts.initialPayload);
+    return { el: containerEl, setState };
+  }
+
+  // ---------- multilingual flying chips ----------
+  function mountLangChips(containerEl, items, opts) {
+    if (!containerEl) return null;
+    opts = opts || {};
+    containerEl.classList.add("lang-chips");
+    containerEl.innerHTML = "";
+
+    const chips = [];
+    items.forEach((item, i) => {
+      const chip = document.createElement("button");
+      chip.className = "lang-chip";
+      chip.type = "button";
+      chip.dataset.axis = item.axis || "language";
+      chip.dataset.bucket = item.bucket;
+      if (item.encoding) chip.dataset.encoding = item.encoding;
+      chip.style.animationDelay = (i * 40) + "ms";
+      chip.innerHTML =
+        `<span>${item.label || item.bucket}</span>` +
+        (item.count != null ? `<span class="count">${item.count}</span>` : "");
+      containerEl.appendChild(chip);
+      chips.push(chip);
+      // Trigger fly-in on next frame
+      requestAnimationFrame(() => chip.classList.add("flown"));
+
+      // Hover → highlight radar vertex
+      const radar = opts.radar;
+      const axisName = chip.dataset.axis;
+      const bucketName = chip.dataset.bucket;
+      chip.addEventListener("mouseenter", () => {
+        chip.classList.add("linked-active");
+        if (radar) radar.highlightBucket(axisName, bucketName, true);
+      });
+      chip.addEventListener("mouseleave", () => {
+        chip.classList.remove("linked-active");
+        if (radar) radar.highlightBucket(axisName, bucketName, false);
+      });
+    });
+    return { el: containerEl, chips };
+  }
+
+  // ---------- scroll-entrance stagger ----------
+  // Adds .entrance to each element and observes intersection. Children of
+  // the same containerEl get a staggered transition-delay.
+  function scrollEntrance(elements, opts) {
+    opts = opts || {};
+    const stagger = opts.stagger ?? 80;
+    const seen = new WeakSet();
+    elements.forEach((el) => el.classList.add("entrance"));
+
+    const io = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (!entry.isIntersecting) return;
+        const el = entry.target;
+        if (seen.has(el)) return;
+        const idx = elements.indexOf(el);
+        el.style.transitionDelay = (Math.max(0, idx) * stagger) + "ms";
+        // Next frame to ensure transition runs.
+        requestAnimationFrame(() => el.classList.add("in"));
+        seen.add(el);
+        io.unobserve(el);
+      });
+    }, { threshold: 0.12 });
+    elements.forEach((el) => io.observe(el));
+    return io;
+  }
+
   // ---------------------------------------------------------
   // Export
   // ---------------------------------------------------------
@@ -830,4 +1209,11 @@
   global.revealOnScroll     = revealOnScroll;
   global.animateCounter     = animateCounter;
   global.mountSplitView     = mountSplitView;
+  // Tier 3 — threat-intelligence dashboard
+  global.emitVerdictParticles = emitVerdictParticles;
+  global.mountKappaGauge      = mountKappaGauge;
+  global.animateRadar         = animateRadar;
+  global.mountSafetyGate      = mountSafetyGate;
+  global.mountLangChips       = mountLangChips;
+  global.scrollEntrance       = scrollEntrance;
 })(window);
