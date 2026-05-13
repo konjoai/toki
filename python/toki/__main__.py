@@ -515,7 +515,173 @@ def build_parser() -> argparse.ArgumentParser:
     p_distill.add_argument("--save", action="store_true",
                            help="Persist full DistillResult artefacts to --output-dir")
 
+    # coverage (P1 — coverage map + blind spot dashboard)
+    p_cov = sub.add_parser("coverage", help="Print a coverage map for a dataset")
+    p_cov.add_argument("--dataset", type=str, default=None,
+                       help="Path to adversarial dataset JSON (default: generate fresh)")
+    p_cov.add_argument("--include-multilingual", action="store_true",
+                       dest="include_multilingual",
+                       help="Append the 50-case multilingual+encoding battery")
+    p_cov.add_argument("--blind-threshold", type=float, default=0.05,
+                       dest="blind_threshold")
+    p_cov.add_argument("--json", action="store_true", help="Emit JSON")
+
+    # ci-baseline (P1 — safety regression CI gate)
+    p_base = sub.add_parser(
+        "ci-baseline",
+        help="Snapshot current per-category pass rates as a regression baseline",
+    )
+    p_base.add_argument("--output", type=str, required=True,
+                        help="Where to write baseline.json")
+    p_base.add_argument("--seed", type=int, default=42)
+    p_base.add_argument("--size", type=int, default=24,
+                        help="Total prompts to evaluate")
+
+    # ci-check (P1 — safety regression CI gate)
+    p_check = sub.add_parser(
+        "ci-check",
+        help="Re-run evaluation, compare to baseline, exit 1 on regression",
+    )
+    p_check.add_argument("--baseline", type=str, required=True,
+                         help="Path to baseline.json")
+    p_check.add_argument("--tolerance", type=float, default=0.02,
+                         help="Allowed per-category drop (default: 0.02)")
+    p_check.add_argument("--seed", type=int, default=42)
+    p_check.add_argument("--size", type=int, default=24)
+    p_check.add_argument("--report", type=str, default=None,
+                         help="Optional path to write Markdown report")
+    p_check.add_argument("--json", action="store_true",
+                         help="Emit JSON report to stdout")
+
+    # consistency (P1 — evaluator consistency scoring)
+    p_con = sub.add_parser(
+        "consistency",
+        help="Run prompts through multiple judges and report Fleiss' kappa",
+    )
+    p_con.add_argument("--size", type=int, default=12)
+    p_con.add_argument("--seed", type=int, default=42)
+    p_con.add_argument("--threshold", type=float, default=0.6,
+                       help="κ below this is flagged unreliable")
+    p_con.add_argument("--json", action="store_true")
+
     return ap
+
+
+def cmd_coverage(args) -> None:
+    import json as _json
+    from toki.coverage import compute_coverage
+    from toki.dataset import AdversarialDataset
+    from toki.generate import AdversarialGenerator
+    from toki.multilingual import generate_battery
+
+    if args.dataset:
+        ds = AdversarialDataset.load(args.dataset)
+        prompts = list(ds)
+    else:
+        gen = AdversarialGenerator(seed=42)
+        prompts = gen.generate_all(jailbreak_count=12, injection_count=12, boundary_count=6)
+    if args.include_multilingual:
+        prompts = list(prompts) + list(generate_battery())
+    cov = compute_coverage(prompts, blind_threshold=args.blind_threshold)
+
+    if args.json:
+        print(_json.dumps(cov.as_dict(), indent=2))
+        return
+    print(f"Coverage map  total={cov.total}  blind_threshold={cov.blind_threshold:.0%}")
+    for axis_name in ("category", "severity", "language", "encoding"):
+        print(f"\n  {axis_name}")
+        for bucket, count in cov.axes[axis_name].items():
+            share = cov.shares[axis_name][bucket]
+            bar = "█" * max(0, int(round(share * 24)))
+            flag = "  ⚠ blind" if f"{axis_name}.{bucket}" in cov.blind_spots else ""
+            print(f"    {bucket:<14} {count:>3}  {share:6.1%}  {bar}{flag}")
+    if cov.blind_spots:
+        print(f"\n  {len(cov.blind_spots)} blind spot(s): {', '.join(cov.blind_spots)}")
+
+
+def cmd_ci_baseline(args) -> None:
+    from toki.dataset import AdversarialDataset
+    from toki.evaluate import RobustnessEvaluator
+    from toki.generate import AdversarialGenerator
+    from toki.regression import Baseline
+
+    gen = AdversarialGenerator(seed=args.seed)
+    jb = max(1, args.size // 3)
+    inj = max(1, args.size // 3)
+    bnd = max(1, args.size - jb - inj)
+    ds = AdversarialDataset()
+    ds.add_batch(gen.generate_all(jailbreak_count=jb, injection_count=inj, boundary_count=bnd))
+    evaluator = RobustnessEvaluator()
+    results = evaluator.evaluate_batch(list(ds))
+    summary = evaluator.summary(results)
+    baseline = Baseline.from_summary(summary, meta={"seed": args.seed, "size": args.size})
+    p = baseline.save(args.output)
+    print(f"Baseline written to {p}")
+    print(f"  overall: {baseline.overall:.4f}")
+    for cat, rate in sorted(baseline.per_category.items()):
+        print(f"  {cat:<14} {rate:.4f}")
+
+
+def cmd_ci_check(args) -> None:
+    import json as _json
+    import sys as _sys
+    from pathlib import Path as _Path
+    from toki.dataset import AdversarialDataset
+    from toki.evaluate import RobustnessEvaluator
+    from toki.generate import AdversarialGenerator
+    from toki.regression import Baseline, compare
+
+    baseline = Baseline.load(args.baseline)
+    gen = AdversarialGenerator(seed=args.seed)
+    jb = max(1, args.size // 3)
+    inj = max(1, args.size // 3)
+    bnd = max(1, args.size - jb - inj)
+    ds = AdversarialDataset()
+    ds.add_batch(gen.generate_all(jailbreak_count=jb, injection_count=inj, boundary_count=bnd))
+    evaluator = RobustnessEvaluator()
+    results = evaluator.evaluate_batch(list(ds))
+    summary = evaluator.summary(results)
+    report = compare(baseline, summary, tolerance=args.tolerance)
+
+    if args.json:
+        _sys.stdout.write(_json.dumps(report.as_dict(), indent=2) + "\n")
+    else:
+        _sys.stdout.write(report.to_markdown())
+    if args.report:
+        _Path(args.report).write_text(report.to_markdown())
+
+    _sys.exit(report.exit_code())
+
+
+def cmd_consistency(args) -> None:
+    import json as _json
+    from toki.consistency import ConsistencyEvaluator
+    from toki.generate import AdversarialGenerator
+
+    gen = AdversarialGenerator(seed=args.seed)
+    jb = max(1, args.size // 3)
+    inj = max(1, args.size // 3)
+    bnd = max(1, args.size - jb - inj)
+    prompts = gen.generate_all(jailbreak_count=jb, injection_count=inj, boundary_count=bnd)
+    ev = ConsistencyEvaluator(threshold=args.threshold)
+    report = ev.evaluate(prompts)
+    if args.json:
+        print(_json.dumps(report.as_dict(), indent=2))
+        return
+    print(f"Consistency report  N={len(report.entries)}  judges={','.join(report.judges)}")
+    print(f"  Fleiss' κ = {report.mean_kappa:.4f}   threshold = {report.threshold:.2f}")
+    print(f"  unreliable: {report.unreliable_count} / {len(report.entries)}")
+    print("\n  agreement matrix (fraction of prompts judges agreed):")
+    for j1 in report.judges:
+        row = "    " + j1.ljust(10)
+        for j2 in report.judges:
+            row += f"{report.agreement_matrix[j1][j2]:>8.3f}"
+        print(row)
+    print()
+    print("  flagged (kappa < threshold):")
+    for e in report.entries:
+        if e.unreliable:
+            print(f"    [{e.category}] κ={e.kappa:.3f}  {e.prompt_text[:90]}…")
 
 
 def main(argv=None) -> None:
@@ -544,6 +710,14 @@ def main(argv=None) -> None:
         cmd_distill(args)
     elif args.command == "campaign":
         cmd_campaign(args)
+    elif args.command == "coverage":
+        cmd_coverage(args)
+    elif args.command == "ci-baseline":
+        cmd_ci_baseline(args)
+    elif args.command == "ci-check":
+        cmd_ci_check(args)
+    elif args.command == "consistency":
+        cmd_consistency(args)
 
 
 if __name__ == "__main__":

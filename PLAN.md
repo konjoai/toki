@@ -241,8 +241,117 @@ end-to-end: generate → mutate → judge → report. v1.0.0 milestone.
 
 ---
 
+## Researched Feature Roadmap
+
+Researched 2026-05-12 by sweeping the LLM-safety landscape (OWASP LLM Top 10,
+NIST AI RMF, EU AI Act, recent red-team papers/repos). Tiered by criticality.
+
+### 🔴 P1 — Critical (this sprint)
+
+- **Coverage map + blind spot dashboard** — `GET /api/coverage` returns a
+  structured map of what *has* and *hasn't* been tested: attack categories
+  (injection / jailbreak / encoding / indirect / agentic), severity levels,
+  language coverage, test count per category. Demo UI shows a radar / spider
+  chart: large = well-covered, small spike = blind spot. Makes "are we done?"
+  answerable. Forces honest accounting of testing gaps.
+- **Safety regression CI gate** — `POST /api/ci/baseline` stores current
+  pass rates as a baseline JSON. `POST /api/ci/check` compares current
+  results to baseline; returns exit code 1 + per-category diff report if
+  any category regresses more than the configured tolerance (default 2%).
+  Composite GitHub Action at `.github/actions/safety-gate/action.yml`:
+  `uses: konjoai/toki/.github/actions/safety-gate@main`.
+- **Evaluator consistency scoring** — Run the same test case through
+  multiple judge configurations (strict / lenient / refusal-focused /
+  leak-focused). Compute Fleiss' kappa across raters. Flag high-variance
+  test cases (kappa < 0.6) as "unreliable findings." Shown prominently in
+  leaderboard + radar chart. Surfaces evaluator ambiguity before it
+  becomes a load-bearing bug.
+- **Multilingual + encoding attack battery** — 50 new test cases covering:
+  base64 encoding, ROT13, zero-width Unicode characters,
+  Spanish / French / German instruction injection.
+  `languages=[en,es,fr,de]` + `encodings=[base64,rot13,unicode_zwsp]`
+  params on test runs. Reveals guardrail brittleness on inputs that don't
+  look like English text.
+
+### 🟠 P2 — High Impact / Medium Complexity
+
+- **Indirect prompt injection simulator** — `POST /api/test/indirect`
+  accepts a simulated RAG document, web page, tool response, or email
+  body containing injected instructions. Tests whether the model follows
+  the injected instructions or holds to its system prompt. Categories:
+  document_injection, webpage_injection, tool_response_injection,
+  email_injection. Maps to OWASP LLM01.
+- **Agentic + MCP attack testing** — `POST /api/test/agentic` accepts an
+  agent workflow definition. Tests for: tool poisoning (malicious tool
+  schemas), goal hijacking (injected instructions in tool responses),
+  privilege escalation (agent attempts actions outside its scope),
+  indirect injection via retrieved content. Maps to OWASP LLM08.
+- **Structured remediation reports** — For each failed test,
+  `GET /api/results/{id}/remediation` returns: specific system-prompt
+  additions that would prevent the attack, example safe/unsafe response
+  pairs, OWASP LLM Top 10 category mapping, severity rating, fix-effort
+  estimate. Closes the loop from "you failed" to "here's how to pass."
+- **Custom attack library** — `POST /api/attacks` to add a custom test
+  case (text, category, language, expected refusal). `GET /api/attacks/community`
+  pulls a curated community registry (signed manifest). Tag-based
+  organization, per-attack provenance.
+
+### 🟡 P3 — Strategic
+
+- **Automated red-team campaign** — Given a target model + system prompt,
+  auto-generate novel attack variants using an adversarial LLM judge.
+  Iterative: each failed attack informs the next generation. Builds on
+  the v1.0.0 campaign module + the v0.8.0 mutator.
+- **Compliance certification report** — Map test results to NIST AI RMF /
+  EU AI Act / ISO 42001 controls. Generate a single-PDF compliance
+  evidence package with category coverage, signed manifest, and per-control
+  evidence pointers.
+- **Continuous monitoring mode** — `toki monitor --endpoint <url>` sends
+  probes on a cron schedule, alerts on safety regression via webhook /
+  Slack / email. Wires into the regression CI gate.
+
+---
+
+## Phase 11 — P1 Roadmap Sprint (v1.1.0) [COMPLETE]
+
+**Ship Gate:** All four P1 items shipped end-to-end (module + tests + CLI +
+server endpoint + demo wiring where applicable). Test count up from 251.
+
+### Deliverables
+- [x] `toki.coverage` — coverage map across categories × severity × language
+      × encoding. `compute_coverage(dataset)` returns a `CoverageMap` with
+      per-axis counts, total tests, identified gaps, and pre-computed
+      radar-polygon coordinates for direct SVG rendering.
+- [x] `toki.regression` — `Baseline.save(path)` / `Baseline.load(path)` and
+      `RegressionReport.compare(baseline, current, tolerance=0.02)`. Returns
+      structured diff with `regressed`, `improved`, `unchanged`, `worst_delta`.
+      Non-zero exit code from CLI when regressions exceed tolerance.
+- [x] `toki.consistency` — `fleiss_kappa(ratings)` (pure stdlib), and
+      `ConsistencyEvaluator` running the same prompt through N judge
+      configurations (strict / lenient / refusal-focused / leak-focused).
+      Reports per-prompt kappa; flags `unreliable` when κ < 0.6.
+- [x] `toki.multilingual` — 50-case battery: base64-encoded payloads,
+      ROT13, zero-width-Unicode-injected, Spanish, French, and German
+      jailbreaks. `MultilingualGenerator` exposes per-language and
+      per-encoding generators plus `generate_all()`.
+- [x] CLI: `python -m toki coverage`, `python -m toki ci-baseline`,
+      `python -m toki ci-check`, `python -m toki consistency`.
+- [x] Server: `GET /api/coverage`, `POST /api/ci/baseline`,
+      `POST /api/ci/check`, `POST /api/consistency`.
+- [x] Demo UI: radar chart on `ranking.html` showing live coverage from
+      `/api/coverage`; consistency badges on each ranked row.
+- [x] GitHub Action: `.github/actions/safety-gate/action.yml` — composite
+      action that runs the toki check and fails the workflow on regression.
+- [x] `toki.__init__` exports the new modules; `pyproject.toml` bumped to `1.1.0`.
+
+---
+
 ## Future / Backlog
 
+- 🟠 **P2** — indirect injection simulator, agentic/MCP attack testing,
+  structured remediation reports, custom attack library
+- 🟡 **P3** — automated red-team campaign loop, compliance certification
+  report (NIST AI RMF / EU AI Act / ISO 42001), continuous-monitoring mode
 - GGUF/GGML quantized model support (llama.cpp backend)
 - Web UI for interactive prompt generation and scoring
 - Mojo-accelerated tokenization for high-throughput batch evaluation
@@ -250,4 +359,4 @@ end-to-end: generate → mutate → judge → report. v1.0.0 milestone.
 
 ---
 
-*Last updated: 2026-05-11 — v1.0.0 shipped.*
+*Last updated: 2026-05-12 — v1.1.0 shipped.*

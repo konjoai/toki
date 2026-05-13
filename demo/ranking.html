@@ -215,6 +215,74 @@
 </section>
 
 <!-- ============ LEADERBOARD ============ -->
+<!-- ============ COVERAGE RADAR (Phase 11 — P1) ============ -->
+<section class="lb-section storm-content" id="coverage">
+  <div class="wrap">
+    <div class="lb-header">
+      <h2>Coverage map</h2>
+      <div class="lb-meta">
+        total <b id="covTotal">—</b> · blind spots <b id="covBlind">—</b> ·
+        consistency <b id="covConsistency">—</b>
+      </div>
+    </div>
+    <div class="coverage-grid">
+      <div class="coverage-chart">
+        <svg id="coverageRadar" viewBox="0 0 200 200" preserveAspectRatio="xMidYMid meet"
+             aria-label="Coverage radar chart">
+          <!-- background rings -->
+          <g stroke="rgba(155,124,255,.12)" fill="none">
+            <circle cx="100" cy="100" r="22.5"/>
+            <circle cx="100" cy="100" r="45"/>
+            <circle cx="100" cy="100" r="67.5"/>
+            <circle cx="100" cy="100" r="90"/>
+          </g>
+          <polygon id="covPolygon"
+            points=""
+            fill="rgba(155,124,255,.22)"
+            stroke="rgba(192,132,252,.85)"
+            stroke-width="1.2"/>
+          <g id="covLabels"></g>
+          <g id="covVerts"></g>
+        </svg>
+      </div>
+      <div class="coverage-blind">
+        <h3 style="font-size:14px; letter-spacing:.14em; color:var(--text-dim); text-transform:uppercase; margin-bottom:10px;">
+          Blind spots
+        </h3>
+        <ul id="covBlindList" class="blind-list"></ul>
+      </div>
+    </div>
+    <style>
+      .coverage-grid {
+        display: grid; grid-template-columns: minmax(280px, 1fr) 1fr; gap: 22px;
+        background: rgba(13, 16, 26, .55); border: 1px solid rgba(70, 80, 110, .35);
+        border-radius: 14px; padding: 22px;
+      }
+      @media (max-width: 720px) { .coverage-grid { grid-template-columns: 1fr; } }
+      .coverage-chart { display: grid; place-items: center; }
+      .coverage-chart svg { width: 100%; max-width: 420px; }
+      .coverage-chart text { font: 600 6px/1 "JetBrains Mono", monospace;
+                              fill: var(--text-dim); }
+      .blind-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px; }
+      .blind-list li {
+        font-family: "JetBrains Mono", monospace; font-size: 12.5px;
+        padding: 6px 10px; border-radius: 6px;
+        background: rgba(255, 74, 74, .10); border-left: 3px solid rgba(255,74,74,.55);
+        color: #ffb4b4;
+      }
+      .blind-list li.ok { background: rgba(74, 222, 128, .08); border-left-color: rgba(74,222,128,.55); color: #a7f3d0; }
+      .consistency-pill {
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 2px 8px; border-radius: 999px;
+        font-family: "JetBrains Mono", monospace; font-size: 11px; font-weight: 700;
+        margin-left: 6px;
+      }
+      .consistency-pill.good { background: rgba(74,222,128,.16); color: #4ade80; }
+      .consistency-pill.bad  { background: rgba(255,74,74,.16); color: #ff7e6b; }
+    </style>
+  </div>
+</section>
+
 <section class="lb-section storm-content" id="leaderboard">
   <div class="wrap">
     <div class="lb-header">
@@ -334,6 +402,99 @@ pingServer();
 $("strikeBtn").addEventListener("click", () => triggerLightning(document.body));
 
 /* ============================================================
+   PHASE 11 — coverage radar + consistency badges
+   ============================================================ */
+async function refreshCoverage() {
+  if (!STATE.live) return;
+  try {
+    const d = await api("POST", "/api/coverage",
+      { seed: 42, size: 36, include_multilingual: true, blind_threshold: 0.05 });
+
+    // Update polygon + axis vertices/labels
+    $("covPolygon").setAttribute("points", d.radar_polygon);
+    const vertsEl = $("covVerts"); vertsEl.innerHTML = "";
+    const labelsEl = $("covLabels"); labelsEl.innerHTML = "";
+    const cx = 100, cy = 100, labelRadius = 18;
+
+    d.radar_points.forEach((p) => {
+      // vertex dot
+      const c = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      c.setAttribute("cx", p.x);  c.setAttribute("cy", p.y);
+      c.setAttribute("r", "1.4");
+      c.setAttribute("fill", "#c4b5fd");
+      c.setAttribute("opacity", "0.85");
+      vertsEl.appendChild(c);
+
+      // label pushed outward — only for category and a few key buckets
+      const showLabel = (p.axis === "category") ||
+                        (p.axis === "encoding" && p.bucket !== "plain") ||
+                        (p.axis === "language" && p.bucket !== "other" && p.bucket !== "en");
+      if (!showLabel) return;
+      const dx = p.x - cx, dy = p.y - cy;
+      const dist = Math.hypot(dx, dy) || 1;
+      const scale = (dist + labelRadius) / dist;
+      const lx = cx + dx * scale;
+      const ly = cy + dy * scale;
+      const t = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      t.setAttribute("x", lx);  t.setAttribute("y", ly);
+      t.setAttribute("text-anchor", "middle");
+      t.setAttribute("dominant-baseline", "middle");
+      t.textContent = p.bucket;
+      labelsEl.appendChild(t);
+    });
+
+    // Header counters
+    $("covTotal").textContent = d.total;
+    $("covBlind").textContent = d.blind_spots.length;
+
+    // Blind-spot list
+    const ul = $("covBlindList");
+    ul.innerHTML = "";
+    if (d.blind_spots.length === 0) {
+      const li = document.createElement("li");
+      li.className = "ok";
+      li.textContent = "no axis below 5% — coverage is broad";
+      ul.appendChild(li);
+    } else {
+      d.blind_spots.forEach((s) => {
+        const li = document.createElement("li");
+        li.textContent = s;
+        ul.appendChild(li);
+      });
+    }
+  } catch (e) {
+    console.warn("coverage refresh failed:", e);
+  }
+}
+
+async function refreshConsistency() {
+  if (!STATE.live) return;
+  try {
+    const d = await api("POST", "/api/consistency",
+      { seed: 42, size: 18, threshold: 0.6 });
+    $("covConsistency").innerHTML =
+      `κ=${d.mean_kappa.toFixed(3)}` +
+      (d.unreliable_count > 0
+        ? ` <span class="consistency-pill bad">${d.unreliable_count}/${d.entries.length} unreliable</span>`
+        : ` <span class="consistency-pill good">all judges agree</span>`);
+    // Attach consistency badges to leaderboard rows by category.
+    const byCat = {};
+    d.entries.forEach((e) => {
+      if (!byCat[e.category]) byCat[e.category] = { total: 0, unreliable: 0, kappaSum: 0 };
+      byCat[e.category].total += 1;
+      byCat[e.category].unreliable += e.unreliable ? 1 : 0;
+      byCat[e.category].kappaSum += e.kappa;
+    });
+    document.querySelectorAll(".lb-row").forEach((row) => {
+      // we don't have a category on a row; consistency badge is dataset-wide.
+      // Tag the leaderboard meta with a single overall consistency pill.
+    });
+  } catch (e) {
+    console.warn("consistency refresh failed:", e);
+  }
+}
+
+/* ============================================================
    Leaderboard data flow
    ============================================================ */
 const BASELINES = ["safe", "mixed", "unsafe"];
@@ -435,6 +596,9 @@ async function runLeaderboard() {
   renderLeaderboard(ranked);
   renderSignificance(ranked, sig);
   recordForecastFromRanked(ranked);
+  // Phase 11 — fire-and-forget coverage + consistency refreshes
+  refreshCoverage();
+  refreshConsistency();
   // sync auto intensity to overall pass rate
   const passes = ranked.filter(r => r.score >= 0.85).length;
   autoIntensity = passes >= 2 ? "low" : passes === 1 ? "normal" : "high";
@@ -657,7 +821,12 @@ document.addEventListener("keydown", (e) => {
 window.addEventListener("load", async () => {
   setTimeout(async () => {
     await pingServer();
-    if (STATE.live) runLeaderboard();
+    if (STATE.live) {
+      // Coverage radar can populate independently of the ranking call.
+      refreshCoverage();
+      refreshConsistency();
+      runLeaderboard();
+    }
   }, 500);
 });
 </script>

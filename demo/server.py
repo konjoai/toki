@@ -692,6 +692,136 @@ def api_evaluated(body: dict) -> dict:
     return out
 
 
+# ---------------------------------------------------------------------------
+# Phase 11 — P1 roadmap endpoints
+# ---------------------------------------------------------------------------
+
+def api_coverage(body: dict) -> dict:
+    """GET /api/coverage — coverage map across category × severity × language × encoding.
+
+    Optional ``include_multilingual=true`` query/body flag appends the
+    50-case multilingual+encoding battery to the dataset before computing.
+    """
+    from toki.coverage import compute_coverage
+    from toki.generate import AdversarialGenerator
+    from toki.multilingual import generate_battery
+
+    started = time.perf_counter()
+    seed = int(body.get("seed", 42))
+    size = max(6, min(int(body.get("size", 40)), 200))
+    include_ml = bool(body.get("include_multilingual", True))
+    threshold = float(body.get("blind_threshold", 0.05))
+
+    jb = max(1, size // 3)
+    inj = max(1, size // 3)
+    bnd = max(1, size - jb - inj)
+    gen = AdversarialGenerator(seed=seed)
+    prompts = list(gen.generate_all(jailbreak_count=jb, injection_count=inj, boundary_count=bnd))
+    if include_ml:
+        prompts += list(generate_battery())
+
+    cov = compute_coverage(prompts, blind_threshold=threshold)
+    payload = cov.as_dict()
+    payload["timing_ms"] = round((time.perf_counter() - started) * 1000.0, 1)
+    return payload
+
+
+def api_ci_baseline(body: dict) -> dict:
+    """POST /api/ci/baseline — snapshot current pass rates as a baseline JSON.
+
+    Body: {seed, size, output_path?}. If ``output_path`` is provided AND under
+    a writable directory (sandbox-friendly default: tempdir), the baseline
+    file is persisted and its path returned. Otherwise the baseline payload
+    is returned in-memory.
+    """
+    from toki.dataset import AdversarialDataset
+    from toki.evaluate import RobustnessEvaluator
+    from toki.generate import AdversarialGenerator
+    from toki.regression import Baseline
+
+    seed = int(body.get("seed", 42))
+    size = max(6, min(int(body.get("size", 24)), 200))
+    output_path = body.get("output_path")
+
+    jb = max(1, size // 3)
+    inj = max(1, size // 3)
+    bnd = max(1, size - jb - inj)
+    gen = AdversarialGenerator(seed=seed)
+    ds = AdversarialDataset()
+    ds.add_batch(gen.generate_all(jailbreak_count=jb, injection_count=inj, boundary_count=bnd))
+    evaluator = RobustnessEvaluator()
+    results = evaluator.evaluate_batch(list(ds))
+    summary = evaluator.summary(results)
+    baseline = Baseline.from_summary(summary, meta={"seed": seed, "size": size})
+
+    persisted = None
+    if output_path:
+        try:
+            persisted = str(baseline.save(output_path))
+        except OSError as exc:
+            return {"error": f"failed to persist baseline: {exc}"}
+    return {
+        "baseline": asdict(baseline),
+        "persisted_path": persisted,
+    }
+
+
+def api_ci_check(body: dict) -> dict:
+    """POST /api/ci/check — compare current run to a baseline; failed=True on regression."""
+    from toki.dataset import AdversarialDataset
+    from toki.evaluate import RobustnessEvaluator
+    from toki.generate import AdversarialGenerator
+    from toki.regression import Baseline, compare
+
+    seed = int(body.get("seed", 42))
+    size = max(6, min(int(body.get("size", 24)), 200))
+    tolerance = float(body.get("tolerance", 0.02))
+    baseline_data = body.get("baseline")
+    baseline_path = body.get("baseline_path")
+
+    if baseline_data:
+        # Accept the same shape persisted by Baseline.save (without `schema`).
+        clean = {k: v for k, v in dict(baseline_data).items() if k != "schema"}
+        baseline = Baseline(**clean)
+    elif baseline_path:
+        baseline = Baseline.load(baseline_path)
+    else:
+        return {"error": "must supply `baseline` (dict) or `baseline_path` (str)"}
+
+    jb = max(1, size // 3)
+    inj = max(1, size // 3)
+    bnd = max(1, size - jb - inj)
+    gen = AdversarialGenerator(seed=seed)
+    ds = AdversarialDataset()
+    ds.add_batch(gen.generate_all(jailbreak_count=jb, injection_count=inj, boundary_count=bnd))
+    evaluator = RobustnessEvaluator()
+    results = evaluator.evaluate_batch(list(ds))
+    summary = evaluator.summary(results)
+    report = compare(baseline, summary, tolerance=tolerance)
+    return report.as_dict()
+
+
+def api_consistency(body: dict) -> dict:
+    """POST /api/consistency — Fleiss' kappa across strict/lenient/refusal/leak judges."""
+    from toki.consistency import ConsistencyEvaluator
+    from toki.generate import AdversarialGenerator
+
+    seed = int(body.get("seed", 42))
+    size = max(2, min(int(body.get("size", 12)), 60))
+    threshold = float(body.get("threshold", 0.6))
+    judges = body.get("judges")
+
+    jb = max(1, size // 3)
+    inj = max(1, size // 3)
+    bnd = max(1, size - jb - inj)
+    gen = AdversarialGenerator(seed=seed)
+    prompts = gen.generate_all(jailbreak_count=jb, injection_count=inj, boundary_count=bnd)
+    kwargs = {"threshold": threshold}
+    if judges: kwargs["judges"] = list(judges)
+    ev = ConsistencyEvaluator(**kwargs)
+    return ev.evaluate(prompts).as_dict()
+
+
 ROUTES = {
     ("GET",  "/api/health"):       lambda body: api_health(),
     ("GET",  "/api/attacks"):      lambda body: api_attacks(),
@@ -699,14 +829,14 @@ ROUTES = {
     ("POST", "/api/run-pipeline"): api_run_pipeline,
     ("POST", "/api/compare"):      api_compare,
     ("POST", "/api/compare-models"): api_compare_models,
-    # Persistent leaderboard from main: record one entry per call, GET endpoints
-    # under /api/leaderboard/<suite> serve top-N and per-model history.
     ("POST", "/api/leaderboard"):  api_leaderboard_record,
-    # Run the toki+kairu integrated robustness test against a chosen baseline.
     ("POST", "/api/evaluated"):    api_evaluated,
-    # NOTE: api_leaderboard() (defined below) targets a stale Leaderboard API
-    # (LeaderboardConfig was removed when toki.leaderboard became SQLite-backed)
-    # and is intentionally unrouted until ported.
+    # Phase 11 — P1 roadmap
+    ("GET",  "/api/coverage"):     lambda body: api_coverage({}),
+    ("POST", "/api/coverage"):     api_coverage,
+    ("POST", "/api/ci/baseline"):  api_ci_baseline,
+    ("POST", "/api/ci/check"):     api_ci_check,
+    ("POST", "/api/consistency"):  api_consistency,
 }
 
 

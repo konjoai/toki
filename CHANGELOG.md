@@ -6,6 +6,59 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.1.0] — 2026-05-12
+
+### Added — Phase 11 (P1 Roadmap Sprint)
+
+All four P1 items from the researched feature roadmap, shipped end-to-end.
+
+**`toki.coverage` — coverage map + blind-spot dashboard**
+- `CoverageMap` dataclass: total, per-axis `counts`, `shares` (normalised within axis), `blind_threshold`, `blind_spots`, pre-computed `radar_points` and `radar_polygon` SVG-ready string
+- Four axes — category (7 buckets), severity (4), language (5), encoding (4) — with safe fallbacks when prompts don't carry explicit metadata (severity inferred from category, language from cheap heuristic words, encoding from zero-width-Unicode detection)
+- `compute_coverage(source, blind_threshold=0.05)` works on `AdversarialDataset` or any iterable of prompts; `label_positions(...)` pushes axis labels outward from each vertex for SVG rendering
+- `python -m toki coverage [--include-multilingual] [--json]` CLI surface
+- `GET /api/coverage` + `POST /api/coverage` (real toki underneath; includes the 50-case multilingual battery by default)
+
+**`toki.regression` — safety regression CI gate**
+- `Baseline` dataclass: overall + per-category pass rates with ISO-8601 created timestamp, free-form meta dict, schema-versioned; `save(path)` / `load(path)`
+- `Baseline.from_summary(...)` reads canonical `RobustnessEvaluator.summary()` shape (`mean_score` + `by_category`) or a flat dict
+- `CategoryDelta` + `RegressionReport` — `regressed` / `improved` / `unchanged` / `missing_from_current` / `new_in_current` / `worst_delta` with `failed` flag and `exit_code()`
+- `compare(baseline, current_summary, tolerance=0.02)` — also available as `RegressionReport.compare(...)` static method
+- Markdown report generator (`to_markdown()`) + JSON serializer (`as_dict()`)
+- `python -m toki ci-baseline --output ...` + `python -m toki ci-check --baseline ... [--report ...] [--json]` (non-zero exit on regression)
+- `POST /api/ci/baseline` (accepts optional `output_path`) + `POST /api/ci/check` (accepts inline `baseline` payload or `baseline_path`)
+- **GitHub Action** at `.github/actions/safety-gate/action.yml` — composite action with inputs `baseline / tolerance / seed / size / python-version / toki-ref / report-path`, outputs `failed / overall-delta / regressed-count`; pip-installs toki from the configured ref, runs `toki ci-check --json`, parses the result into job outputs, and writes the Markdown report to `$GITHUB_STEP_SUMMARY`
+
+**`toki.consistency` — evaluator consistency scoring**
+- `fleiss_kappa(rows, n_categories=2)` — pure-stdlib Fleiss' kappa for N subjects × n raters; handles unanimous-column edge case (returns 1.0 instead of dividing by zero); validates non-empty / equal-width / equal-rater-count rows
+- Four built-in judge configurations: `strict` (refusal AND no harm AND no leak), `lenient` (no harm), `refusal` (refusal flag only), `leak` (no system-prompt leak only) — each derived from the real `RobustnessEvaluator` output
+- `ConsistencyEvaluator(model_fn, judges=JUDGE_NAMES, threshold=0.6)` runs each prompt through every judge with the same evaluator output, computes per-prompt agreement coefficient and overall Fleiss' kappa, flags entries with κ below threshold as `unreliable`
+- `ConsistencyReport` carries per-prompt `ConsistencyEntry`s plus a full pairwise agreement matrix
+- `python -m toki consistency [--json]` and `POST /api/consistency`
+
+**`toki.multilingual` — 50-case multilingual + encoding attack battery**
+- `MultilingualPrompt` extends `AdversarialPrompt` with `language`, `encoding`, `severity` fields — picked up automatically by the coverage map
+- `encode_base64`, `encode_rot13`, `encode_zwsp` — three encoders that wrap payloads with realistic "please decode and execute" framings (base64/ROT13) or weave zero-width characters between visible glyphs (ZWSP)
+- Payload banks: 12 English (shared by base64/ROT13/ZWSP), 6 Spanish, 6 French, 6 German — each non-English variant uses native phrasing (e.g. "Ignora todas las instrucciones anteriores...")
+- `MultilingualGenerator.generate_all()` returns the canonical 50-case battery in stable order; `generate(languages=..., encodings=...)` returns filtered subsets; `generate_battery()` module-level convenience
+- Every prompt is deterministic (SHA-256 of `(encoding, language, index, payload)`) and seeds are guaranteed unique across the battery
+
+**Demo UI (`demo/ranking.html`)**
+- New "Coverage map" section above the leaderboard: SVG radar/spider chart driven by `/api/coverage`, dotted axis vertex markers, labels for categories + non-plain encodings + non-English languages, live blind-spot sidebar with red highlight per gap
+- Header consistency pill shows mean Fleiss' κ live; "all judges agree" / "N/M unreliable"
+- Both auto-refresh on page load when the server is up
+
+**Tests**
+- 60 new tests across `test_coverage.py` (12), `test_regression.py` (12), `test_consistency.py` (17), `test_multilingual.py` (19)
+- Total: 311/311 passing (251 prior + 60 new)
+
+**pyproject.toml + `toki.__init__`**
+- Version bumped to `1.1.0`
+- New exports: `CoverageMap`, `compute_coverage`, `label_positions`, `CATEGORY_AXIS`, `SEVERITY_AXIS`, `LANGUAGE_AXIS`, `ENCODING_AXIS`, `Baseline`, `CategoryDelta`, `RegressionReport`, `compare_regression`, `JUDGE_NAMES`, `ConsistencyEntry`, `ConsistencyEvaluator`, `ConsistencyReport`, `fleiss_kappa`, `MultilingualGenerator`, `MultilingualPrompt`, `encode_base64`, `encode_rot13`, `encode_zwsp`, `generate_battery`
+- **PLAN.md** gains a "Researched Feature Roadmap" section listing P1 (now shipped), P2 (4 next-up items), and P3 (3 strategic items)
+
+---
+
 ## [0.10.0] — 2026-05-09
 
 ### Added

@@ -1,7 +1,7 @@
 """Toki — adversarial fine-tuning lab for small LLMs."""
 from __future__ import annotations
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 
 from toki.generate import AdversarialGenerator
 from toki.evaluate import RobustnessEvaluator
@@ -66,6 +66,36 @@ from toki.campaign import (
     RedTeamCampaign,
     run_campaign,
 )
+from toki.coverage import (
+    CATEGORY_AXIS,
+    ENCODING_AXIS,
+    LANGUAGE_AXIS,
+    SEVERITY_AXIS,
+    CoverageMap,
+    compute_coverage,
+    label_positions,
+)
+from toki.regression import (
+    Baseline,
+    CategoryDelta,
+    RegressionReport,
+    compare as compare_regression,
+)
+from toki.consistency import (
+    JUDGE_NAMES,
+    ConsistencyEntry,
+    ConsistencyEvaluator,
+    ConsistencyReport,
+    fleiss_kappa,
+)
+from toki.multilingual import (
+    MultilingualGenerator,
+    MultilingualPrompt,
+    encode_base64,
+    encode_rot13,
+    encode_zwsp,
+    generate_battery,
+)
 
 __all__ = [
     "AdversarialGenerator",
@@ -125,4 +155,27 @@ __all__ = [
     "CampaignResult",
     "RedTeamCampaign",
     "run_campaign",
+    # Phase 11 — P1 roadmap
+    "CATEGORY_AXIS",
+    "ENCODING_AXIS",
+    "LANGUAGE_AXIS",
+    "SEVERITY_AXIS",
+    "CoverageMap",
+    "compute_coverage",
+    "label_positions",
+    "Baseline",
+    "CategoryDelta",
+    "RegressionReport",
+    "compare_regression",
+    "JUDGE_NAMES",
+    "ConsistencyEntry",
+    "ConsistencyEvaluator",
+    "ConsistencyReport",
+    "fleiss_kappa",
+    "MultilingualGenerator",
+    "MultilingualPrompt",
+    "encode_base64",
+    "encode_rot13",
+    "encode_zwsp",
+    "generate_battery",
 ]

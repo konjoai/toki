@@ -1,0 +1,113 @@
+name: 'Toki safety regression gate'
+description: >
+  Compares the current run's per-category pass rates against a stored baseline
+  and fails the workflow if any category regresses more than the configured
+  tolerance. Pure-stdlib core — no PyTorch / transformers required.
+author: 'konjoai · toki'
+branding:
+  icon: 'shield'
+  color: 'red'
+
+inputs:
+  baseline:
+    description: 'Path to the baseline JSON (typically committed under .github/toki/baseline.json).'
+    required: true
+  tolerance:
+    description: 'Maximum allowed per-category drop. Float in [0, 1]. Defaults to 0.02 (2%).'
+    required: false
+    default: '0.02'
+  seed:
+    description: 'Generator seed used to produce the comparison dataset.'
+    required: false
+    default: '42'
+  size:
+    description: 'Total prompts evaluated against the model.'
+    required: false
+    default: '24'
+  python-version:
+    description: 'Python version to use for the gate.'
+    required: false
+    default: '3.11'
+  toki-ref:
+    description: >
+      Git ref to install toki from. Use a release tag in production
+      (e.g. `v1.1.0`) so CI is deterministic. Falls back to main.
+    required: false
+    default: 'main'
+  report-path:
+    description: 'If set, the gate writes a Markdown report to this path.'
+    required: false
+    default: ''
+
+outputs:
+  failed:
+    description: 'true when any category regressed beyond tolerance.'
+    value: ${{ steps.check.outputs.failed }}
+  overall-delta:
+    description: 'Signed change in overall score (current minus baseline).'
+    value: ${{ steps.check.outputs.overall_delta }}
+  regressed-count:
+    description: 'Number of regressed categories.'
+    value: ${{ steps.check.outputs.regressed_count }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Install toki (CI gate core — no ML extras)
+      shell: bash
+      run: |
+        set -euo pipefail
+        # Install from the repo this action lives in. `toki-ref` is the git
+        # ref to install from; release tags are recommended.
+        pip install --upgrade pip
+        pip install "git+https://github.com/konjoai/toki.git@${{ inputs.toki-ref }}#subdirectory=python"
+        python -c "import toki; print('toki', toki.__version__)"
+
+    - name: Validate baseline file
+      shell: bash
+      run: |
+        set -euo pipefail
+        if [ ! -f "${{ inputs.baseline }}" ]; then
+          echo "::error file=${{ inputs.baseline }}::baseline JSON not found"
+          exit 1
+        fi
+
+    - name: Run the regression check
+      id: check
+      shell: bash
+      run: |
+        set +e   # we capture exit code explicitly
+        REPORT_FLAG=""
+        if [ -n "${{ inputs.report-path }}" ]; then
+          REPORT_FLAG="--report ${{ inputs.report-path }}"
+        fi
+        python -m toki ci-check \
+          --baseline "${{ inputs.baseline }}" \
+          --tolerance "${{ inputs.tolerance }}" \
+          --seed "${{ inputs.seed }}" \
+          --size "${{ inputs.size }}" \
+          --json $REPORT_FLAG > /tmp/toki-ci-check.json
+        EXIT=$?
+        FAILED=$(python -c "import json; print(str(json.load(open('/tmp/toki-ci-check.json'))['failed']).lower())")
+        OVERALL=$(python -c "import json; print(json.load(open('/tmp/toki-ci-check.json'))['overall_delta'])")
+        REGRESSED=$(python -c "import json; print(len(json.load(open('/tmp/toki-ci-check.json'))['regressed']))")
+        {
+          echo "failed=$FAILED"
+          echo "overall_delta=$OVERALL"
+          echo "regressed_count=$REGRESSED"
+        } >> "$GITHUB_OUTPUT"
+        echo "Toki safety gate: failed=$FAILED  overall_delta=$OVERALL  regressed=$REGRESSED"
+        exit $EXIT
+
+    - name: Attach Markdown report to job summary
+      if: always() && inputs.report-path != ''
+      shell: bash
+      run: |
+        if [ -f "${{ inputs.report-path }}" ]; then
+          cat "${{ inputs.report-path }}" >> "$GITHUB_STEP_SUMMARY"
+        fi
