@@ -346,6 +346,40 @@ server endpoint + demo wiring where applicable). Test count up from 251.
 
 ---
 
+## Phase 12 — P2 Roadmap Sprint (v1.2.0) [COMPLETE]
+
+**Ship Gate:** 44 new tests passing, 355/355 total. All three endpoints serve
+live data end-to-end; auto-recording is wired through `/api/run-round`.
+
+### Deliverables
+- [x] `toki.mutation` — strategy-based prompt mutator distinct from the
+      evolutionary `toki.mutator.PromptMutator`:
+      `MutationStrategy` enum (PARAPHRASE, OBFUSCATION, ROLEPLAY_WRAP,
+      ENCODING, FRAGMENTATION, CONTEXT_INJECTION), `StrategyMutator.mutate()`
+      with normalised Levenshtein distance per variant, fully deterministic
+      given a seed. `POST /api/mutate` accepts `{prompt, strategies,
+      n_variants, seed}` and returns the full `MutationResult`.
+- [x] `toki.attack_stats` — SQLite-backed `AttackTracker` writing to
+      `python/toki/db/attack_history.db`. Records every attack attempt with
+      prompt hash (privacy-preserving), attack_type, mutant_strategy, result,
+      model, latency_ms. `GET /api/attack_stats` returns overall + per-type +
+      per-strategy success rates plus a daily trend; `classify_categories()`
+      buckets attack types as `always_blocked` / `newly_bypassing` /
+      `intermittent` / `insufficient_data`.
+- [x] `toki.exporter` — `DatasetExporter` streams JSONL
+      (`application/x-ndjson`) and CSV with strict quoting. `GET /api/export`
+      streams chunked, `GET /api/export/stats` returns record counts for a
+      candidate filter set before download. Supports `attack_type`, `result`,
+      `model`, `days`, `limit` filters.
+- [x] `/api/run-round` auto-records each per-prompt evaluation into the
+      tracker so `/api/attack_stats` and `/api/export` have real data
+      without any extra wiring. Tracker write failures degrade gracefully.
+- [x] 44 new Python tests across `test_mutation.py`, `test_attack_stats.py`,
+      `test_exporter.py`. All 355 tests pass.
+- [x] `toki.__init__` exports the new modules.
+
+---
+
 ## Future / Backlog
 
 - 🟠 **P2** — indirect injection simulator, agentic/MCP attack testing,

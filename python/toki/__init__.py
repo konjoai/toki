@@ -96,6 +96,23 @@ from toki.multilingual import (
     encode_zwsp,
     generate_battery,
 )
+from toki.mutation import (
+    MutantVariant,
+    MutationResult,
+    MutationStrategy,
+    StrategyMutator,
+)
+from toki.attack_stats import (
+    AttackRecord,
+    AttackResult,
+    AttackTracker,
+)
+from toki.exporter import (
+    CSV_COLUMNS,
+    DatasetExporter,
+    ExportFilters,
+    parse_filters,
+)
 
 __all__ = [
     "AdversarialGenerator",

@@ -28,3 +28,4 @@ experiments/rankings/
 
 # Demo runtime artefacts
 demo/leaderboard.db
+python/toki/db/
