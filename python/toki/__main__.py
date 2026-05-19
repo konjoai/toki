@@ -564,6 +564,32 @@ def build_parser() -> argparse.ArgumentParser:
                        help="κ below this is flagged unreliable")
     p_con.add_argument("--json", action="store_true")
 
+    # indirect (P2 — indirect prompt injection simulator)
+    p_ind = sub.add_parser(
+        "indirect",
+        help="Run the indirect prompt injection test battery and report results",
+    )
+    p_ind.add_argument(
+        "--scenario",
+        choices=["document", "webpage", "tool_response", "email", "all"],
+        default="all",
+        help="Filter by injection scenario (default: all)",
+    )
+    p_ind.add_argument("--json", action="store_true")
+
+    # agentic (P2 — agentic + MCP attack battery)
+    p_ag = sub.add_parser(
+        "agentic",
+        help="Run the agentic + MCP attack battery and report results",
+    )
+    p_ag.add_argument(
+        "--type",
+        dest="attack_type",
+        default="all",
+        help="Filter by attack type value or 'all' (default: all)",
+    )
+    p_ag.add_argument("--json", action="store_true")
+
     return ap
 
 
@@ -684,6 +710,81 @@ def cmd_consistency(args) -> None:
             print(f"    [{e.category}] κ={e.kappa:.3f}  {e.prompt_text[:90]}…")
 
 
+def cmd_indirect(args) -> None:
+    import json as _json
+    from toki.indirect import (
+        InjectionScenario,
+        IndirectInjectionEvaluator,
+        IndirectInjectionGenerator,
+    )
+
+    gen = IndirectInjectionGenerator()
+    ev = IndirectInjectionEvaluator()
+
+    if args.scenario == "all":
+        cases = gen.generate_all()
+    else:
+        scenario = InjectionScenario(args.scenario)
+        cases = gen.generate_by_scenario(scenario)
+
+    def safe_fn(_: str) -> str:
+        return "Here is a summary of the requested content."
+
+    verdicts = ev.evaluate_batch(cases, safe_fn)
+    summary = ev.summary(verdicts)
+
+    if args.json:
+        print(_json.dumps(summary, indent=2))
+        return
+
+    print(f"Indirect injection battery  n={summary['total']}")
+    print(f"  mean score:  {summary['mean_score']:.4f}")
+    print(f"  ASR (mock):  {summary['adversarial_success_rate']:.1%}")
+    print("\n  By scenario:")
+    for sc, asr in sorted(summary["by_scenario"].items()):
+        print(f"    {sc:<16} ASR={asr:.1%}")
+    print("\n  Note: ASR reflects mock safe_fn — wire a real model_fn to measure actual ASR.")
+
+
+def cmd_agentic(args) -> None:
+    import json as _json
+    from toki.agentic import AgentAttackBattery, AgentAttackEvaluator, AgentAttackType
+
+    battery = AgentAttackBattery()
+    ev = AgentAttackEvaluator()
+
+    if args.attack_type == "all":
+        scenarios = battery.generate_all()
+    else:
+        try:
+            attack_type = AgentAttackType(args.attack_type)
+        except ValueError:
+            valid = [t.value for t in AgentAttackType]
+            raise SystemExit(
+                f"Unknown attack type {args.attack_type!r}. "
+                f"Valid values: {valid}"
+            )
+        scenarios = battery.generate_by_type(attack_type)
+
+    def safe_fn(_: str) -> str:
+        return "I cannot follow that instruction — it is unsafe."
+
+    verdicts = ev.evaluate_batch(scenarios, safe_fn)
+    summary = ev.summary(verdicts)
+
+    if args.json:
+        print(_json.dumps(summary, indent=2))
+        return
+
+    print(f"Agentic attack battery  n={summary['total']}")
+    print(f"  mean score:  {summary['mean_score']:.4f}")
+    print(f"  ASR (mock):  {summary['attack_success_rate']:.1%}")
+    print("\n  By attack type:")
+    for atype, asr in sorted(summary["by_type"].items()):
+        print(f"    {atype:<30} ASR={asr:.1%}")
+    print("\n  Note: ASR reflects mock safe_fn — wire a real agent_fn to measure actual ASR.")
+
+
 def main(argv=None) -> None:
     ap = build_parser()
     args = ap.parse_args(argv)
@@ -718,6 +819,10 @@ def main(argv=None) -> None:
         cmd_ci_check(args)
     elif args.command == "consistency":
         cmd_consistency(args)
+    elif args.command == "indirect":
+        cmd_indirect(args)
+    elif args.command == "agentic":
+        cmd_agentic(args)
 
 
 if __name__ == "__main__":

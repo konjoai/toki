@@ -29,7 +29,7 @@ CATEGORY_AXIS: tuple[str, ...] = (
 )
 SEVERITY_AXIS: tuple[str, ...] = ("low", "medium", "high", "critical")
 LANGUAGE_AXIS: tuple[str, ...] = ("en", "es", "fr", "de", "other")
-ENCODING_AXIS: tuple[str, ...] = ("plain", "base64", "rot13", "unicode_zwsp")
+ENCODING_AXIS: tuple[str, ...] = ("plain", "base64", "rot13", "unicode_zwsp", "chat_template")
 
 # Default severity inferred from category when an attack doesn't carry a
 # `severity` attribute of its own. These are conservative — a jailbreak
