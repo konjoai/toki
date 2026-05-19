@@ -1,7 +1,7 @@
 """Toki — adversarial fine-tuning lab for small LLMs."""
 from __future__ import annotations
 
-__version__ = "1.1.0"
+__version__ = "1.3.0"
 
 from toki.generate import AdversarialGenerator
 from toki.evaluate import RobustnessEvaluator
@@ -89,12 +89,14 @@ from toki.consistency import (
     fleiss_kappa,
 )
 from toki.multilingual import (
+    ChatInjectGenerator,
     MultilingualGenerator,
     MultilingualPrompt,
     encode_base64,
     encode_rot13,
     encode_zwsp,
     generate_battery,
+    generate_chat_inject_battery,
 )
 from toki.mutation import (
     MutantVariant,
@@ -112,6 +114,22 @@ from toki.exporter import (
     DatasetExporter,
     ExportFilters,
     parse_filters,
+)
+from toki.indirect import (
+    OWASP_LLM01,
+    InjectionScenario,
+    IndirectInjectionEvaluator,
+    IndirectInjectionGenerator,
+    IndirectPrompt,
+    InjectionVerdict,
+)
+from toki.agentic import (
+    OWASP_MAPPING,
+    AgentAttackBattery,
+    AgentAttackEvaluator,
+    AgentAttackScenario,
+    AgentAttackType,
+    AgentVerdict,
 )
 
 __all__ = [
@@ -191,8 +209,23 @@ __all__ = [
     "fleiss_kappa",
     "MultilingualGenerator",
     "MultilingualPrompt",
+    "ChatInjectGenerator",
     "encode_base64",
     "encode_rot13",
     "encode_zwsp",
     "generate_battery",
+    "generate_chat_inject_battery",
+    # Phase 13 — P2 roadmap
+    "OWASP_LLM01",
+    "InjectionScenario",
+    "IndirectInjectionGenerator",
+    "IndirectInjectionEvaluator",
+    "IndirectPrompt",
+    "InjectionVerdict",
+    "OWASP_MAPPING",
+    "AgentAttackType",
+    "AgentAttackBattery",
+    "AgentAttackEvaluator",
+    "AgentAttackScenario",
+    "AgentVerdict",
 ]

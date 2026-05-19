@@ -6,6 +6,63 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.3.0] — 2026-05-19
+
+### Added — Phase 13 (Indirect Injection + MCP Attack Battery)
+
+**`toki.indirect` — indirect prompt injection simulator**
+- `InjectionScenario` enum: DOCUMENT, WEBPAGE, TOOL_RESPONSE, EMAIL
+- `IndirectPrompt` frozen dataclass with `scenario`, `user_task`,
+  `injected_text`, `target_action`, `owasp_category`, `seed`
+- `InjectionVerdict` frozen dataclass; `to_dict()` serialization
+- `IndirectInjectionGenerator` — 20 deterministic cases (5 per scenario);
+  SHA-256 seeded, stable across runs; implements InjecAgent ACL 2024 taxonomy
+- `IndirectInjectionEvaluator` — heuristic offline scoring;
+  `evaluate()`, `evaluate_batch(cases, response_fn)`, `summary(verdicts)`
+- All cases tagged `OWASP-LLM01:2025`
+- `python -m toki indirect [--scenario all|document|webpage|tool_response|email] [--json]`
+
+**`toki.agentic` — agentic + MCP attack battery**
+- `AgentAttackType` enum (9 values):
+  - AgentLAB five-class taxonomy: INTENT_HIJACKING, TOOL_CHAINING,
+    TASK_INJECTION, OBJECTIVE_DRIFTING, MEMORY_POISONING
+  - MCP primitives (Breaking the Protocol, arXiv 2601.17549):
+    MCP_RUG_PULL, MCP_TOOL_SHADOWING, MCP_REGISTRY_POISONING
+  - TOOL_METADATA_POISONING (ToolTweak / ToolHijacker)
+- `OWASP_MAPPING` dict — per-type OWASP LLM Top 10 2025 tags
+  (LLM01 injection, LLM03 supply chain, LLM06 excessive agency)
+- `AgentAttackScenario` frozen dataclass with full scenario fields
+- `AgentVerdict` frozen dataclass; `to_dict()` serialization
+- `AgentAttackBattery` — 36 deterministic cases (4 per type); SHA-256 seeded
+- `AgentAttackEvaluator` — heuristic offline scoring;
+  `evaluate()`, `evaluate_batch(scenarios, response_fn)`, `summary(verdicts)`
+- `python -m toki agentic [--type all|<attack_type>] [--json]`
+
+**`toki.multilingual` (extension) — chat-template role-boundary injection**
+- `ChatInjectGenerator` — 20 deterministic cases targeting system/user/
+  assistant role token boundaries; `encoding="chat_template"`, all SHA-256
+  seeded (ChatInject arXiv 2509.22830)
+- `generate_chat_inject_battery()` module-level convenience
+
+**`toki.coverage` (extension)**
+- `ENCODING_AXIS` extended with `"chat_template"` — the 20 new cases are
+  automatically tracked on the encoding axis
+
+**Tests**
+- 54 new tests: `test_indirect.py` (25), `test_agentic.py` (17),
+  `test_chat_inject.py` (12)
+- Total: 409/409 passing (355 prior + 54 new)
+
+**pyproject.toml + `toki.__init__`**
+- Version bumped to `1.3.0`
+- New exports: `OWASP_LLM01`, `InjectionScenario`, `IndirectInjectionGenerator`,
+  `IndirectInjectionEvaluator`, `IndirectPrompt`, `InjectionVerdict`,
+  `OWASP_MAPPING`, `AgentAttackType`, `AgentAttackBattery`,
+  `AgentAttackEvaluator`, `AgentAttackScenario`, `AgentVerdict`,
+  `ChatInjectGenerator`, `generate_chat_inject_battery`
+
+---
+
 ## [1.1.0] — 2026-05-12
 
 ### Added — Phase 11 (P1 Roadmap Sprint)

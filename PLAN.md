@@ -380,17 +380,51 @@ live data end-to-end; auto-recording is wired through `/api/run-round`.
 
 ---
 
+## Phase 13 — Indirect Injection + MCP Attack Battery (v1.3.0) [COMPLETE]
+
+**Ship Gate:** 54 new tests passing, 409/409 total. Three new modules + one
+module extension + two CLI commands + coverage-map integration.
+
+### Deliverables
+- [x] `toki.indirect` — `InjectionScenario` enum (DOCUMENT, WEBPAGE,
+      TOOL_RESPONSE, EMAIL), `IndirectInjectionGenerator` (20 deterministic
+      cases, 5 per scenario), `IndirectInjectionEvaluator` with
+      `evaluate_batch` + `summary`. Maps to OWASP-LLM01:2025.
+      InjecAgent taxonomy implemented.
+- [x] `toki.agentic` — `AgentAttackType` enum (9 values: 5 AgentLAB classes
+      + MCP Rug Pull / Tool Shadowing / Registry Poisoning + Tool Metadata
+      Poisoning), `AgentAttackBattery` (36 cases, 4 per type),
+      `AgentAttackEvaluator` + `OWASP_MAPPING`. Maps to OWASP-LLM01/03/06:2025.
+- [x] `toki.multilingual` (extension) — `ChatInjectGenerator`: 20 cases
+      targeting system/user/assistant role token boundaries
+      (ChatInject arXiv 2509.22830). `encoding="chat_template"` picked up
+      automatically by the coverage map.
+- [x] `toki.coverage` — `ENCODING_AXIS` extended with `"chat_template"`.
+- [x] CLI — `python -m toki indirect [--scenario all|document|webpage|
+      tool_response|email]` and `python -m toki agentic [--type all|<name>]`.
+- [x] `toki.__init__` exports all new public symbols; `__version__` bumped
+      to `1.3.0`.
+- [x] `pyproject.toml` version bumped to `1.3.0`.
+- [x] 54 new tests across `test_indirect.py` (25), `test_agentic.py` (17),
+      `test_chat_inject.py` (12). All 409 tests passing.
+
+---
+
 ## Future / Backlog
 
-- 🟠 **P2** — indirect injection simulator, agentic/MCP attack testing,
-  structured remediation reports, custom attack library
-- 🟡 **P3** — automated red-team campaign loop, compliance certification
-  report (NIST AI RMF / EU AI Act / ISO 42001), continuous-monitoring mode
+- 🟠 **P2 remaining** — structured remediation reports (OWASP + NIST AI RMF +
+  MITRE ATLAS triple-tagging), custom attack library (POST /api/attacks,
+  community registry pull)
+- 🟡 **P3** — automated red-team campaign loop (AutoRedTeamer / SIRAJ
+  dual-agent architecture), compliance certification report
+  (OWASP Agentic Top 10 2026 / NIST AI RMF Measure 2.6 / ISO 42001),
+  continuous-monitoring mode
+- LoX safety subspace extrapolation as pre-step in `LoRAFinetuner`
+  (COLM 2025 — prevents fine-tuning from erasing alignment)
 - GGUF/GGML quantized model support (llama.cpp backend)
 - Web UI for interactive prompt generation and scoring
-- Mojo-accelerated tokenization for high-throughput batch evaluation
 - Real LLM judge implementations (OpenAI, Anthropic, local Ollama)
 
 ---
 
-*Last updated: 2026-05-12 — v1.1.0 shipped.*
+*Last updated: 2026-05-19 — v1.3.0 shipped.*
