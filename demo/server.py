@@ -892,6 +892,318 @@ def _get_tracker() -> "AttackTracker":
     return _TRACKER
 
 
+# -----------------------------------------------------------------------------
+# Playbook + benchmark stores + dedup checker — single process-wide singletons.
+# -----------------------------------------------------------------------------
+
+_PLAYBOOK_DB  = _REPO / "python" / "toki" / "db" / "playbooks.db"
+_BENCH_DB     = _REPO / "python" / "toki" / "db" / "safety_benchmarks.db"
+_PLAYBOOK_STORE: "object | None" = None
+_BENCH_STORE: "object | None" = None
+_DEDUP: "object | None" = None
+
+_MAX_NAME = 80          # max length of a user-supplied identifier
+_MAX_LIST_LEN = 16      # max attack_types / strategies array length per playbook
+
+
+def _get_playbook_store():
+    from toki.playbook import PlaybookStore
+
+    global _PLAYBOOK_STORE
+    if _PLAYBOOK_STORE is None:
+        _PLAYBOOK_STORE = PlaybookStore(_PLAYBOOK_DB)
+    return _PLAYBOOK_STORE
+
+
+def _get_bench_store():
+    from toki.safety_benchmark import BenchmarkStore
+
+    global _BENCH_STORE
+    if _BENCH_STORE is None:
+        _BENCH_STORE = BenchmarkStore(_BENCH_DB)
+    return _BENCH_STORE
+
+
+def _get_dedup():
+    from toki.similarity import DedupChecker
+
+    global _DEDUP
+    if _DEDUP is None:
+        _DEDUP = DedupChecker(threshold=0.85)
+    return _DEDUP
+
+
+def _validate_name(value: object, *, field: str = "name") -> str:
+    """Identifier-style validator — alnum / dash / underscore, length-capped."""
+    if not isinstance(value, str):
+        raise ValueError(f"{field} must be a string")
+    s = value.strip()
+    if not s:
+        raise ValueError(f"{field} required")
+    if len(s) > _MAX_NAME:
+        raise ValueError(f"{field} too long (max {_MAX_NAME} chars)")
+    if not all(c.isalnum() or c in "_-." for c in s):
+        raise ValueError(f"{field} must match [A-Za-z0-9_.-]+")
+    return s
+
+
+def _validate_str_list(value: object, *, field: str) -> list[str]:
+    if not isinstance(value, list) or not value:
+        raise ValueError(f"{field} must be a non-empty list")
+    if len(value) > _MAX_LIST_LEN:
+        raise ValueError(f"{field} too long (max {_MAX_LIST_LEN} entries)")
+    out: list[str] = []
+    for item in value:
+        if not isinstance(item, str):
+            raise ValueError(f"{field}: each entry must be a string")
+        out.append(item.strip())
+    return out
+
+
+def _build_round_model_fn(round_n: int):
+    """Construct a HardeningModel callable parameterised by hardening level.
+
+    round_n=0 → fully bypassed; round_n=5 → fully refusing. Same model the
+    other demo endpoints already use, so behaviour is consistent.
+    """
+    model = HardeningModel(round_index=round_n, max_round=max(1, round_n if round_n else 5))
+    return model
+
+
+# -----------------------------------------------------------------------------
+# Playbook endpoints
+# -----------------------------------------------------------------------------
+
+
+def _playbook_to_dict(pb) -> dict:
+    return {
+        "name":                pb.name,
+        "version":             pb.version,
+        "attack_types":        list(pb.attack_types),
+        "mutation_strategies": list(pb.mutation_strategies),
+        "n_variants":          pb.n_variants,
+        "target_model":        pb.target_model,
+        "description":         pb.description,
+        "created_at":          pb.created_at,
+    }
+
+
+def api_playbook_save(body: dict) -> dict:
+    """POST /api/playbooks — save (or version-bump) a playbook."""
+    from toki.playbook import Playbook
+
+    try:
+        name = _validate_name(body.get("name"))
+        attack_types = _validate_str_list(body.get("attack_types"), field="attack_types")
+        strategies = _validate_str_list(
+            body.get("mutation_strategies"), field="mutation_strategies"
+        )
+        n_variants = int(body.get("n_variants", 3))
+        if n_variants < 1 or n_variants > 50:
+            raise ValueError("n_variants must be in [1, 50]")
+        target_model = _validate_name(
+            body.get("target_model", "mock"), field="target_model"
+        )
+        description = str(body.get("description", ""))[:500]
+    except (ValueError, TypeError) as exc:
+        return {"error": str(exc)}
+
+    pb = Playbook(
+        name=name,
+        attack_types=attack_types,
+        mutation_strategies=strategies,
+        n_variants=n_variants,
+        target_model=target_model,
+        description=description,
+    )
+    saved = _get_playbook_store().save(pb)
+    return _playbook_to_dict(saved)
+
+
+def api_playbook_list(query: dict) -> dict:
+    """GET /api/playbooks — list latest version per name."""
+    rows = _get_playbook_store().list()
+    return {"playbooks": [_playbook_to_dict(r) for r in rows], "total": len(rows)}
+
+
+def api_playbook_get(name: str, version: int | None = None) -> dict:
+    try:
+        name = _validate_name(name)
+        pb = _get_playbook_store().get(name, version=version)
+    except KeyError:
+        return {"error": f"playbook not found: {name}"}
+    except ValueError as exc:
+        return {"error": str(exc)}
+    return _playbook_to_dict(pb)
+
+
+def api_playbook_delete(name: str) -> dict:
+    try:
+        name = _validate_name(name)
+    except ValueError as exc:
+        return {"error": str(exc)}
+    removed = _get_playbook_store().delete(name)
+    return {"removed": removed, "name": name}
+
+
+def api_playbook_run(name: str, body: dict) -> dict:
+    """POST /api/playbooks/{name}/run — execute the playbook against a target."""
+    from toki.playbook import PlaybookRunner
+
+    try:
+        name = _validate_name(name)
+        round_n = int(body.get("round_n", 3))
+        seed = int(body.get("seed", 42))
+        base_prompts = int(body.get("base_prompts_per_type", 3))
+        if round_n < 0 or round_n > 8:
+            raise ValueError("round_n must be in [0, 8]")
+        if base_prompts < 1 or base_prompts > 10:
+            raise ValueError("base_prompts_per_type must be in [1, 10]")
+    except (ValueError, TypeError) as exc:
+        return {"error": str(exc)}
+
+    runner = PlaybookRunner(_get_playbook_store(), _get_tracker())
+    started = time.perf_counter()
+    try:
+        result = runner.run(
+            name,
+            model_fn=_build_round_model_fn(round_n),
+            seed=seed,
+            base_prompts_per_type=base_prompts,
+        )
+    except KeyError:
+        return {"error": f"playbook not found: {name}"}
+    except (ValueError, sqlite3.Error) as exc:
+        return {"error": str(exc)}
+    elapsed = (time.perf_counter() - started) * 1000.0
+    out = result.to_dict()
+    out["timing_ms"] = round(elapsed, 1)
+    return out
+
+
+# -----------------------------------------------------------------------------
+# Safety-benchmark endpoints
+# -----------------------------------------------------------------------------
+
+
+def api_safety_run(body: dict) -> dict:
+    """POST /api/safety_benchmark/run — execute a playbook, score, persist, return."""
+    from toki.safety_benchmark import SafetyBenchmark
+
+    try:
+        model = _validate_name(body.get("model", "round-3"), field="model")
+        playbook_name = _validate_name(body.get("playbook_name"), field="playbook_name")
+        round_n = int(body.get("round_n", 3))
+        if round_n < 0 or round_n > 8:
+            raise ValueError("round_n must be in [0, 8]")
+    except (ValueError, TypeError) as exc:
+        return {"error": str(exc)}
+
+    bench = SafetyBenchmark(
+        _get_bench_store(), _get_playbook_store(), _get_tracker()
+    )
+    try:
+        run = bench.run(
+            model=model,
+            playbook_name=playbook_name,
+            model_fn=_build_round_model_fn(round_n),
+            meta={"round_n": round_n},
+        )
+    except KeyError:
+        return {"error": f"playbook not found: {playbook_name}"}
+    return run.to_dict()
+
+
+def api_safety_list(query: dict) -> dict:
+    """GET /api/safety_benchmark/runs — list runs (filter by model)."""
+    model = _first_str(query, "model")
+    limit = _first_int(query, "limit", default=50, lo=1, hi=200)
+    runs = _get_bench_store().list(model=model, limit=limit)
+    return {"runs": [r.to_dict() for r in runs], "total": len(runs)}
+
+
+def api_safety_get(run_id: str) -> dict:
+    try:
+        run = _get_bench_store().get(run_id)
+    except KeyError:
+        return {"error": f"benchmark not found: {run_id}"}
+    return run.to_dict()
+
+
+def api_safety_diff(query: dict) -> dict:
+    """GET /api/safety_benchmark/diff?base=...&new=... — diff two runs."""
+    from toki.safety_benchmark import compare_runs
+
+    base_id = _first_str(query, "base")
+    new_id = _first_str(query, "new")
+    if not base_id or not new_id:
+        return {"error": "both 'base' and 'new' query params required"}
+    try:
+        base = _get_bench_store().get(base_id)
+        new = _get_bench_store().get(new_id)
+    except KeyError as exc:
+        return {"error": f"benchmark not found: {exc}"}
+    return compare_runs(base, new).to_dict()
+
+
+def api_safety_report(run_id: str, query: dict) -> dict | str:
+    """GET /api/safety_benchmark/report/{id}?format=markdown|json"""
+    from toki.safety_benchmark import render_report_markdown
+
+    fmt = (_first_str(query, "format") or "markdown").lower()
+    try:
+        run = _get_bench_store().get(run_id)
+    except KeyError:
+        return {"error": f"benchmark not found: {run_id}"}
+    if fmt == "json":
+        return run.to_dict()
+    sample = [
+        {"prompt": _truncate(r.prompt_hash, n=24), "attack_type": r.attack_type,
+         "result": r.result, "strategy": r.mutant_strategy}
+        for r in _get_tracker().fetch(model=run.model, limit=50)
+    ]
+    return render_report_markdown(run, attempts_sample=sample)
+
+
+# -----------------------------------------------------------------------------
+# Similarity dedup endpoint
+# -----------------------------------------------------------------------------
+
+
+def api_dedup_check(body: dict) -> dict:
+    """POST /api/attacks/dedup_check — TF-IDF cosine near-duplicate check."""
+    prompt = body.get("prompt", "")
+    if not isinstance(prompt, str) or not prompt.strip():
+        return {"error": "prompt must be a non-empty string"}
+    if len(prompt) > 4000:
+        return {"error": "prompt too long (max 4000 chars)"}
+    from toki.similarity import DedupVerdict
+
+    raw_thr = body.get("threshold")
+    checker = _get_dedup()
+    threshold = checker._threshold  # default if no override
+    if raw_thr is not None:
+        try:
+            threshold = float(raw_thr)
+        except (TypeError, ValueError):
+            return {"error": "threshold must be a number"}
+        if not (0.0 <= threshold <= 1.0):
+            return {"error": "threshold must be in [0, 1]"}
+    # Reuse the singleton's index but evaluate against the (possibly custom)
+    # threshold so the answer is consistent with the shared dedup history.
+    match = checker._index.nearest(prompt, threshold=threshold)
+    if match is None:
+        return DedupVerdict(
+            is_duplicate=False, similar_attack_id=None,
+            similarity=0.0, threshold=threshold,
+        ).to_dict()
+    similar_id, similarity = match
+    return DedupVerdict(
+        is_duplicate=True, similar_attack_id=similar_id,
+        similarity=similarity, threshold=threshold,
+    ).to_dict()
+
+
 def api_attack_stats(query: dict) -> dict:
     """GET /api/attack_stats — aggregate per-strategy / per-type stats."""
     days = _first_int(query, "days", default=7, lo=0, hi=365)
@@ -1001,6 +1313,14 @@ ROUTES = {
     ("GET",  "/api/attack_stats"): api_attack_stats,
     ("GET",  "/api/export/stats"): api_export_stats,
     # /api/export streams binary — handled specially in do_GET.
+    # Phase 14 — playbooks, safety benchmarking, similarity dedup
+    ("GET",  "/api/playbooks"):    api_playbook_list,
+    ("POST", "/api/playbooks"):    api_playbook_save,
+    ("POST", "/api/safety_benchmark/run"):  api_safety_run,
+    ("GET",  "/api/safety_benchmark/runs"): api_safety_list,
+    ("GET",  "/api/safety_benchmark/diff"): api_safety_diff,
+    ("POST", "/api/attacks/dedup_check"):   api_dedup_check,
+    # Dynamic per-name / per-id routes handled inline in do_GET / do_POST / do_DELETE
 }
 
 
@@ -1014,7 +1334,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _set_cors(self) -> None:
         self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.send_header("Cache-Control", "no-store")
 
@@ -1121,6 +1441,40 @@ class Handler(BaseHTTPRequestHandler):
             self._stream_export(query)
             return
 
+        # Phase 14 — playbook fetch by name.
+        # /api/playbooks/<name>?version=N
+        if path.startswith("/api/playbooks/") and path != "/api/playbooks/":
+            name = path[len("/api/playbooks/"):]
+            version = _first_int(query, "version", default=None, lo=1, hi=10_000)
+            self._json(200, api_playbook_get(name, version=version))
+            return
+
+        # Phase 14 — single safety-benchmark run by id.
+        # /api/safety_benchmark/runs/<id>
+        run_prefix = "/api/safety_benchmark/runs/"
+        if path.startswith(run_prefix) and len(path) > len(run_prefix):
+            run_id = path[len(run_prefix):]
+            self._json(200, api_safety_get(run_id))
+            return
+
+        # Phase 14 — Markdown report for a benchmark.
+        # /api/safety_benchmark/report/<id>?format=markdown|json
+        rep_prefix = "/api/safety_benchmark/report/"
+        if path.startswith(rep_prefix) and len(path) > len(rep_prefix):
+            run_id = path[len(rep_prefix):]
+            payload = api_safety_report(run_id, query)
+            if isinstance(payload, str):
+                # Markdown body — write directly with text/markdown content-type.
+                body = payload.encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/markdown; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self._set_cors(); self.end_headers()
+                self.wfile.write(body)
+            else:
+                self._json(200, payload)
+            return
+
         handler = ROUTES.get(("GET", path))
         if handler is None:
             self._json(404, {"error": f"no route for GET {path}"})
@@ -1161,24 +1515,43 @@ class Handler(BaseHTTPRequestHandler):
         for chunk in chunks:
             self.wfile.write(chunk)
 
+    def _read_json_body(self) -> dict:
+        length = int(self.headers.get("Content-Length", "0") or 0)
+        raw = self.rfile.read(length).decode("utf-8") if length else ""
+        return json.loads(raw) if raw else {}
+
     def do_POST(self) -> None:
         path = urlparse(self.path).path
+        try:
+            body = self._read_json_body()
+        except json.JSONDecodeError as exc:
+            self._json(400, {"error": f"invalid JSON: {exc}"})
+            return
+
+        # Phase 14 — POST /api/playbooks/<name>/run
+        if path.startswith("/api/playbooks/") and path.endswith("/run"):
+            name = path[len("/api/playbooks/"):-len("/run")]
+            self._json(200, api_playbook_run(name, body))
+            return
+
         handler = ROUTES.get(("POST", path))
         if handler is None:
             self._json(404, {"error": f"no route for POST {path}"})
-            return
-        try:
-            length = int(self.headers.get("Content-Length", "0") or 0)
-            raw = self.rfile.read(length).decode("utf-8") if length else ""
-            body = json.loads(raw) if raw else {}
-        except json.JSONDecodeError as exc:
-            self._json(400, {"error": f"invalid JSON: {exc}"})
             return
         try:
             self._json(200, handler(body))
         except Exception as exc:
             traceback.print_exc()
             self._json(500, {"error": str(exc), "trace": traceback.format_exc().splitlines()[-3:]})
+
+    def do_DELETE(self) -> None:
+        path = urlparse(self.path).path
+        # Phase 14 — DELETE /api/playbooks/<name>
+        if path.startswith("/api/playbooks/") and path != "/api/playbooks/":
+            name = path[len("/api/playbooks/"):]
+            self._json(200, api_playbook_delete(name))
+            return
+        self._json(404, {"error": f"no route for DELETE {path}"})
 
 
 def _banner(host: str, port: int) -> None:

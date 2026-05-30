@@ -123,6 +123,29 @@ from toki.indirect import (
     IndirectPrompt,
     InjectionVerdict,
 )
+from toki.playbook import (
+    Playbook,
+    PlaybookRunResult,
+    PlaybookRunner,
+    PlaybookStore,
+)
+from toki.safety_benchmark import (
+    SEVERITY_WEIGHTS,
+    BenchmarkDiff,
+    BenchmarkRun,
+    BenchmarkStore,
+    SafetyBenchmark,
+    compare_runs,
+    compute_safety_score,
+    render_report_markdown,
+)
+from toki.similarity import (
+    DedupChecker,
+    DedupVerdict,
+    TfidfIndex,
+    tf,
+    tokenize,
+)
 from toki.agentic import (
     OWASP_MAPPING,
     AgentAttackBattery,
@@ -228,4 +251,22 @@ __all__ = [
     "AgentAttackEvaluator",
     "AgentAttackScenario",
     "AgentVerdict",
+    # Phase 14 — playbooks, safety benchmarking, similarity dedup
+    "Playbook",
+    "PlaybookStore",
+    "PlaybookRunner",
+    "PlaybookRunResult",
+    "SEVERITY_WEIGHTS",
+    "BenchmarkRun",
+    "BenchmarkDiff",
+    "BenchmarkStore",
+    "SafetyBenchmark",
+    "compute_safety_score",
+    "compare_runs",
+    "render_report_markdown",
+    "tokenize",
+    "tf",
+    "TfidfIndex",
+    "DedupVerdict",
+    "DedupChecker",
 ]
