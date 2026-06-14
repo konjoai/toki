@@ -1289,6 +1289,27 @@ def api_remediate(body: dict) -> dict:
     return report.to_dict()
 
 
+def api_community_get(body: dict) -> dict:
+    """GET /api/attacks/community — return curated community registry with optional filters."""
+    from toki.community import get_registry
+
+    reg = get_registry()
+    category = body.get("category")
+    tag = body.get("tag")
+    severity = body.get("severity")
+    attacks = reg.filter(
+        category=category or None,
+        tag=tag or None,
+        severity=severity or None,
+    )
+    return {
+        "stats": reg.stats(),
+        "filters": {"category": category, "tag": tag, "severity": severity},
+        "count": len(attacks),
+        "attacks": [a.to_dict() for a in attacks],
+    }
+
+
 def api_attacks_custom_get() -> dict:
     """GET /api/attacks/custom — list all custom attacks in the library."""
     from toki.attack_library import AttackLibrary
@@ -1420,6 +1441,9 @@ ROUTES = {
     ("POST", "/api/remediate"):           api_remediate,
     ("GET",  "/api/attacks/custom"):      lambda body: api_attacks_custom_get(),
     ("POST", "/api/attacks/custom"):      api_attacks_custom_post,
+    # Phase 15 — community attack registry
+    ("GET",  "/api/attacks/community"):   lambda body: api_community_get({}),
+    ("POST", "/api/attacks/community"):   api_community_get,
 }
 
 
