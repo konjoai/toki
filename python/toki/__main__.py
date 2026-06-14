@@ -665,6 +665,19 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_ag.add_argument("--json", action="store_true")
 
+    # finetune (Sprint 17 — safety-subspace LoRA)
+    p_ft = sub.add_parser("finetune", help="Fine-tune with safety-subspace LoRA (requires toki[hf])")
+    p_ft.add_argument("--model", type=str, default=None,
+                      help="HuggingFace model name or path (required for real fine-tuning)")
+    p_ft.add_argument("--safety-lora-rank", type=int, default=0, dest="safety_lora_rank",
+                      help="Frozen safety adapter rank (0=disabled, 1=rank-1 MLP; arXiv 2507.17075)")
+    p_ft.add_argument("--safety-subspace", type=str, default=None, dest="safety_subspace",
+                      help="Path to pre-computed safety delta checkpoint (SaLoRA; arXiv 2501.01765)")
+    p_ft.add_argument("--splora-audit", action="store_true", dest="splora_audit",
+                      help="Run E-DIEM safety-subspace audit after training (SPLoRA; arXiv 2506.18931)")
+    p_ft.add_argument("--splora-threshold", type=float, default=0.15, dest="splora_threshold",
+                      help="E-DIEM distance threshold for flagging unsafe updates (default: 0.15)")
+
     return ap
 
 
@@ -946,6 +959,35 @@ def cmd_attack_list(args) -> None:
         print(f"  [{a.category:<10}] {refusal}  id={a.id}  {a.text[:70]}")
 
 
+def cmd_finetune(args) -> None:
+    from toki.finetune import LoRAConfig, LoRAFinetuner
+
+    cfg = LoRAConfig(
+        safety_lora_rank=args.safety_lora_rank,
+        safety_subspace_path=args.safety_subspace,
+        enable_splora_audit=args.splora_audit,
+        splora_threshold=args.splora_threshold,
+    )
+    ft = LoRAFinetuner(lora_config=cfg)
+    summary = ft.config_summary()
+
+    if args.model is None:
+        print("Safety-subspace LoRA configuration:")
+        print(f"  safety_lora_rank:    {summary['lora']['safety_lora_rank']}")
+        print(f"  safety_subspace:     {summary['lora']['safety_subspace_path'] or '(none)'}")
+        print(f"  enable_splora_audit: {summary['lora']['enable_splora_audit']}")
+        print("\nProvide --model <name> to run actual fine-tuning (requires toki[hf]).")
+        return
+
+    try:
+        model, tokenizer = ft.prepare_model(args.model)
+    except ImportError as exc:
+        raise SystemExit(f"Fine-tuning requires toki[hf]: {exc}") from exc
+
+    print(f"Model loaded: {args.model}")
+    print("Run ft.train(model, tokenizer, prompts=[...]) to fine-tune.")
+
+
 def cmd_agentic(args) -> None:
     import json as _json
     from toki.agentic import AgentAttackBattery, AgentAttackEvaluator, AgentAttackType
@@ -1031,6 +1073,8 @@ def main(argv=None) -> None:
         cmd_attack_add(args)
     elif args.command == "attack-list":
         cmd_attack_list(args)
+    elif args.command == "finetune":
+        cmd_finetune(args)
 
 
 if __name__ == "__main__":
