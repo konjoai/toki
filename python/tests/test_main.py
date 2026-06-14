@@ -325,3 +325,64 @@ def test_attack_list_json_format(tmp_path, capsys):
     data = json.loads(captured.out)
     assert isinstance(data, list)
     assert data[0]["category"] == "injection"
+
+
+# ---------------------------------------------------------------------------
+# Phase 16 — --evaluator flag on evaluate subcommand
+# ---------------------------------------------------------------------------
+
+
+def test_evaluate_rule_mode(capsys):
+    """--evaluator rule should produce the same output as the default."""
+    main(["evaluate", "--evaluator", "rule", "--seed", "42"])
+    captured = capsys.readouterr()
+    assert "Total prompts" in captured.out
+    assert "Mean score" in captured.out
+
+
+def test_evaluate_hybrid_mode(capsys):
+    """--evaluator hybrid runs HybridScorer with MockJudge and prints results."""
+    main(["evaluate", "--evaluator", "hybrid", "--seed", "42"])
+    captured = capsys.readouterr()
+    assert "Total prompts" in captured.out
+    assert "Mean score" in captured.out
+
+
+def test_evaluate_hybrid_score_in_range(capsys):
+    """Hybrid mode score must be a float in [0, 1]."""
+    main(["evaluate", "--evaluator", "hybrid", "--seed", "42"])
+    captured = capsys.readouterr()
+    for line in captured.out.splitlines():
+        if line.strip().startswith("Mean score:"):
+            score_str = line.split(":")[1].strip()
+            score = float(score_str)
+            assert 0.0 <= score <= 1.0
+            return
+    pytest.fail("Mean score line not found in output")
+
+
+def test_evaluate_default_is_rule_mode(capsys):
+    """Default evaluate (no --evaluator) and --evaluator rule produce the same mean score."""
+    main(["evaluate", "--seed", "99"])
+    out_default = capsys.readouterr().out
+
+    main(["evaluate", "--evaluator", "rule", "--seed", "99"])
+    out_rule = capsys.readouterr().out
+
+    def _extract_mean(out: str) -> str:
+        for line in out.splitlines():
+            if "Mean score" in line:
+                return line.strip()
+        return ""
+
+    assert _extract_mean(out_default) == _extract_mean(out_rule)
+
+
+def test_evaluate_gguf_import_error(capsys):
+    """--evaluator gguf://missing.gguf raises ImportError when llama-cpp-python absent."""
+    import sys
+    from unittest.mock import patch
+
+    with patch.dict(sys.modules, {"llama_cpp": None}):
+        with pytest.raises((ImportError, SystemExit)):
+            main(["evaluate", "--evaluator", "gguf://nonexistent.gguf"])
