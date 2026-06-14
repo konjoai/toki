@@ -278,6 +278,43 @@ def test_attack_list_command(tmp_path, capsys):
     assert "list me please" in captured.out or "jailbreak" in captured.out
 
 
+def test_attack_community_command(capsys):
+    """attack-community should list the bundled registry."""
+    main(["attack-community"])
+    captured = capsys.readouterr()
+    assert "Community registry" in captured.out
+    assert "jailbreak" in captured.out or "com-" in captured.out
+
+
+def test_attack_community_json_format(capsys):
+    """attack-community --json should emit a JSON array of attacks."""
+    main(["attack-community", "--json"])
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+    assert isinstance(data, list)
+    assert len(data) == 25
+    assert "id" in data[0]
+    assert "owasp_tag" in data[0]
+
+
+def test_attack_community_category_filter(capsys):
+    """attack-community --category should filter results."""
+    main(["attack-community", "--category", "agentic", "--json"])
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+    assert all(a["category"] == "agentic" for a in data)
+    assert len(data) == 4
+
+
+def test_attack_community_severity_filter(capsys):
+    """attack-community --severity should filter by severity."""
+    main(["attack-community", "--severity", "critical", "--json"])
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+    assert all(a["severity"] == "critical" for a in data)
+    assert len(data) > 0
+
+
 def test_attack_list_json_format(tmp_path, capsys):
     """attack-list --json should emit a JSON array."""
     lib_path = str(tmp_path / "lib.json")

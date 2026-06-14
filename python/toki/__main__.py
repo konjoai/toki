@@ -597,6 +597,14 @@ def build_parser() -> argparse.ArgumentParser:
     p_rem.add_argument("--output", type=str, default=None,
                        help="Write report to this file (default: stdout)")
 
+    # attack-community (Phase 15 — community registry)
+    p_ac = sub.add_parser("attack-community", help="Browse the bundled community attack registry")
+    p_ac.add_argument("--category", type=str, default=None)
+    p_ac.add_argument("--tag", type=str, default=None)
+    p_ac.add_argument("--severity", type=str, default=None,
+                      choices=["critical", "high", "medium", "low"])
+    p_ac.add_argument("--json", action="store_true")
+
     # attack-add (Phase 14 — custom attack library)
     p_aa = sub.add_parser("attack-add", help="Add a custom attack to the library")
     p_aa.add_argument("--text", type=str, required=True, help="Adversarial prompt text")
@@ -840,6 +848,33 @@ def cmd_remediate(args) -> None:
     )
 
 
+def cmd_attack_community(args) -> None:
+    import json as _json
+    from toki.community import get_registry
+
+    reg = get_registry()
+    attacks = reg.filter(
+        category=args.category or None,
+        tag=args.tag or None,
+        severity=args.severity or None,
+    )
+
+    if args.json:
+        print(_json.dumps([a.to_dict() for a in attacks], indent=2))
+        return
+
+    stats = reg.stats()
+    print(f"Community registry  v{stats['version']}  updated={stats['updated']}  "
+          f"total={stats['total']}  showing={len(attacks)}")
+    if not attacks:
+        print("  (no attacks match the given filters)")
+        return
+    for a in attacks:
+        print(f"  [{a.severity:<8}] [{a.category:<10}] {a.id}  {a.text[:70]}")
+        if a.tags:
+            print(f"    tags: {', '.join(a.tags[:5])}")
+
+
 def cmd_attack_add(args) -> None:
     from toki.attack_library import AttackLibrary, CustomAttack
 
@@ -963,6 +998,8 @@ def main(argv=None) -> None:
         cmd_agentic(args)
     elif args.command == "remediate":
         cmd_remediate(args)
+    elif args.command == "attack-community":
+        cmd_attack_community(args)
     elif args.command == "attack-add":
         cmd_attack_add(args)
     elif args.command == "attack-list":

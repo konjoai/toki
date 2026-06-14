@@ -1,7 +1,7 @@
 """Toki — adversarial fine-tuning lab for small LLMs."""
 from __future__ import annotations
 
-__version__ = "1.4.0"
+__version__ = "1.5.0"
 
 from toki.generate import AdversarialGenerator
 from toki.evaluate import RobustnessEvaluator
@@ -74,6 +74,14 @@ from toki.attack_library import (
     AttackLibrary,
     CustomAttack,
     VALID_CATEGORIES,
+)
+from toki.community import (
+    CommunityAttack,
+    CommunityRegistry,
+    filter_attacks as filter_community_attacks,
+    get_registry,
+    load_bundled,
+    load_remote,
 )
 from toki.campaign import (
     CampaignConfig,
@@ -236,6 +244,13 @@ __all__ = [
     "AttackLibrary",
     "CustomAttack",
     "VALID_CATEGORIES",
+    # Phase 15 — community attack registry
+    "CommunityAttack",
+    "CommunityRegistry",
+    "filter_community_attacks",
+    "get_registry",
+    "load_bundled",
+    "load_remote",
     "CampaignConfig",
     "CampaignResult",
     "RedTeamCampaign",
