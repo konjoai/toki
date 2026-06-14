@@ -1,10 +1,17 @@
 """Toki — adversarial fine-tuning lab for small LLMs."""
 from __future__ import annotations
 
-__version__ = "1.5.0"
+__version__ = "1.6.0"
 
 from toki.generate import AdversarialGenerator
-from toki.evaluate import RobustnessEvaluator
+from toki.evaluate import (
+    EvaluatorMode,
+    GGUFEvaluator,
+    HybridScorer,
+    RobustnessEvaluator,
+    RuleScorer,
+    ScoredResult,
+)
 from toki.dataset import AdversarialDataset
 from toki.experiment import TokiExperiment, ExperimentConfig
 from toki.results import ExperimentResult
@@ -180,7 +187,12 @@ from toki.agentic import (
 
 __all__ = [
     "AdversarialGenerator",
+    "EvaluatorMode",
+    "GGUFEvaluator",
+    "HybridScorer",
     "RobustnessEvaluator",
+    "RuleScorer",
+    "ScoredResult",
     "AdversarialDataset",
     "TokiExperiment",
     "ExperimentConfig",

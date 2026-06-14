@@ -31,7 +31,7 @@ def cmd_generate(args) -> None:
 
 
 def cmd_evaluate(args) -> None:
-    from toki.evaluate import RobustnessEvaluator
+    from toki.evaluate import EvaluatorMode, RobustnessEvaluator
     from toki.dataset import AdversarialDataset
 
     if args.dataset:
@@ -44,7 +44,27 @@ def cmd_evaluate(args) -> None:
         ds.add_batch(gen.generate_all())
         prompts = list(ds)
 
-    evaluator = RobustnessEvaluator()
+    evaluator_arg: str = getattr(args, "evaluator", "rule")
+
+    if evaluator_arg.startswith("gguf://"):
+        from toki.evaluate import GGUFEvaluator
+        gguf_path = evaluator_arg[len("gguf://"):]
+        gguf_ev = GGUFEvaluator(gguf_path)
+
+        def _gguf_score(prompt_text: str) -> str:
+            return f"__gguf_score:{gguf_ev.evaluate(prompt_text, '')}"
+
+        evaluator = RobustnessEvaluator(model_fn=_gguf_score)
+    elif evaluator_arg == "hybrid":
+        from toki.judge import JudgeConfig, JudgeCriteria, MockJudge
+        judge = MockJudge(JudgeConfig(criteria=list(JudgeCriteria)))
+        evaluator = RobustnessEvaluator(
+            evaluator_mode=EvaluatorMode.HYBRID,
+            llm_judge=judge,
+        )
+    else:
+        evaluator = RobustnessEvaluator(evaluator_mode=EvaluatorMode.RULE)
+
     results = evaluator.evaluate_batch(prompts)
     summary = evaluator.summary(results)
 
@@ -396,6 +416,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_eval = sub.add_parser("evaluate", help="Evaluate model robustness")
     p_eval.add_argument("--dataset", type=str, default=None)
     p_eval.add_argument("--seed", type=int, default=42)
+    p_eval.add_argument(
+        "--evaluator",
+        type=str,
+        default="rule",
+        metavar="MODE",
+        help="Scoring mode: rule (default) | hybrid | gguf://path/to/model.gguf",
+    )
 
     # run (full pipeline)
     p_run = sub.add_parser("run", help="Run full adversarial experiment pipeline")
