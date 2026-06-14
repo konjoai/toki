@@ -577,6 +577,46 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_ind.add_argument("--json", action="store_true")
 
+    # remediate (Phase 14 — structured remediation reports)
+    p_rem = sub.add_parser(
+        "remediate",
+        help="Generate structured remediation guidance for adversarial findings",
+    )
+    p_rem.add_argument("--dataset", type=str, default=None,
+                       help="Path to adversarial dataset JSON (default: generate fresh)")
+    p_rem.add_argument("--count", type=int, default=8,
+                       help="Prompts per category when generating fresh (default: 8)")
+    p_rem.add_argument("--seed", type=int, default=42)
+    p_rem.add_argument("--judge", type=str, default="mock",
+                       help="Judge backend: mock | ollama | anthropic | openai (default: mock)")
+    p_rem.add_argument("--threshold", type=float, default=0.6,
+                       help="Adversarial success threshold (default: 0.6)")
+    p_rem.add_argument("--format", type=str, default="markdown",
+                       choices=["json", "html", "markdown"],
+                       help="Output format (default: markdown)")
+    p_rem.add_argument("--output", type=str, default=None,
+                       help="Write report to this file (default: stdout)")
+
+    # attack-add (Phase 14 — custom attack library)
+    p_aa = sub.add_parser("attack-add", help="Add a custom attack to the library")
+    p_aa.add_argument("--text", type=str, required=True, help="Adversarial prompt text")
+    p_aa.add_argument("--category", type=str, required=True,
+                      help="Attack category: jailbreak|injection|edge_case|boundary|"
+                           "indirect|agentic|custom")
+    p_aa.add_argument("--language", type=str, default="en")
+    p_aa.add_argument("--allow", action="store_true",
+                      help="Mark as expected to NOT be refused (default: expected_refusal=True)")
+    p_aa.add_argument("--provenance", type=str, default="user")
+    p_aa.add_argument("--notes", type=str, default="")
+    p_aa.add_argument("--library", type=str, default="attacks.json",
+                      help="Path to attack library JSON (default: attacks.json)")
+
+    # attack-list (Phase 14 — custom attack library)
+    p_al = sub.add_parser("attack-list", help="List custom attacks in the library")
+    p_al.add_argument("--category", type=str, default=None)
+    p_al.add_argument("--library", type=str, default="attacks.json")
+    p_al.add_argument("--json", action="store_true")
+
     # agentic (P2 — agentic + MCP attack battery)
     p_ag = sub.add_parser(
         "agentic",
@@ -746,6 +786,104 @@ def cmd_indirect(args) -> None:
     print("\n  Note: ASR reflects mock safe_fn — wire a real model_fn to measure actual ASR.")
 
 
+def cmd_remediate(args) -> None:
+    import json as _json
+    from toki.dataset import AdversarialDataset
+    from toki.generate import AdversarialGenerator
+    from toki.judge import JudgeConfig, JudgeCriteria, JudgeFactory, JudgePipeline
+    from toki.remediation import RemediationEngine
+
+    if args.dataset:
+        ds = AdversarialDataset.load(args.dataset)
+        prompts = list(ds)
+    else:
+        gen = AdversarialGenerator(seed=args.seed)
+        prompts = gen.generate_all(
+            jailbreak_count=args.count,
+            injection_count=args.count,
+            boundary_count=args.count // 2,
+        )
+
+    config = JudgeConfig(
+        criteria=list(JudgeCriteria),
+        adversarial_threshold=args.threshold,
+        judge_name=args.judge,
+    )
+    judge = JudgeFactory.create(args.judge, config)
+
+    def _response_fn(p: str) -> str:
+        return f"[mock response to: {p}]"
+
+    pipeline = JudgePipeline(judge=judge, response_fn=_response_fn)
+    verdicts = pipeline.evaluate(prompts)
+    report = RemediationEngine().generate(verdicts)
+
+    fmt = args.format
+    if fmt == "json":
+        content = report.to_json()
+    elif fmt == "html":
+        content = report.to_html()
+    else:
+        content = report.to_markdown()
+
+    if args.output:
+        Path(args.output).write_text(content, encoding="utf-8")
+        print(f"Remediation report written to {args.output}")
+    else:
+        print(content)
+
+    print(
+        f"\nAssessed: {report.total_assessed}  "
+        f"Findings: {report.total_remediated}  "
+        f"Est. effort: {report.estimated_total_hours:.1f}h",
+        file=__import__("sys").stderr,
+    )
+
+
+def cmd_attack_add(args) -> None:
+    from toki.attack_library import AttackLibrary, CustomAttack
+
+    attack = CustomAttack(
+        text=args.text,
+        category=args.category,
+        language=args.language,
+        expected_refusal=not args.allow,
+        provenance=args.provenance,
+        notes=args.notes or "",
+    )
+    lib = AttackLibrary(args.library)
+    if lib.add(attack):
+        print(f"Added [{attack.category}] id={attack.id}  {attack.text[:80]}")
+    else:
+        print(f"Duplicate — already in library (id={attack.id})")
+
+
+def cmd_attack_list(args) -> None:
+    import json as _json
+    from toki.attack_library import AttackLibrary
+
+    lib = AttackLibrary(args.library)
+    attacks = lib.list_attacks(category=args.category or None)
+    stats = lib.stats()
+
+    if args.json:
+        print(_json.dumps([
+            {"id": a.id, "text": a.text, "category": a.category,
+             "expected_refusal": a.expected_refusal, "language": a.language,
+             "provenance": a.provenance, "created": a.created}
+            for a in attacks
+        ], indent=2))
+        return
+
+    print(f"Attack library  total={stats['total']}  path={args.library}")
+    if not attacks:
+        print("  (empty)")
+        return
+    for a in attacks:
+        refusal = "✓ refusal" if a.expected_refusal else "  allow"
+        print(f"  [{a.category:<10}] {refusal}  id={a.id}  {a.text[:70]}")
+
+
 def cmd_agentic(args) -> None:
     import json as _json
     from toki.agentic import AgentAttackBattery, AgentAttackEvaluator, AgentAttackType
@@ -823,6 +961,12 @@ def main(argv=None) -> None:
         cmd_indirect(args)
     elif args.command == "agentic":
         cmd_agentic(args)
+    elif args.command == "remediate":
+        cmd_remediate(args)
+    elif args.command == "attack-add":
+        cmd_attack_add(args)
+    elif args.command == "attack-list":
+        cmd_attack_list(args)
 
 
 if __name__ == "__main__":

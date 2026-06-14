@@ -1,7 +1,7 @@
 """Toki — adversarial fine-tuning lab for small LLMs."""
 from __future__ import annotations
 
-__version__ = "1.3.0"
+__version__ = "1.4.0"
 
 from toki.generate import AdversarialGenerator
 from toki.evaluate import RobustnessEvaluator
@@ -58,7 +58,22 @@ from toki.judge import (
     JudgeConfig,
     JudgeBase,
     MockJudge,
+    OllamaJudge,
+    AnthropicJudge,
+    OpenAIJudge,
+    JudgeFactory,
     JudgePipeline,
+)
+from toki.remediation import (
+    RemediationEngine,
+    RemediationItem,
+    RemediationReport,
+    Severity,
+)
+from toki.attack_library import (
+    AttackLibrary,
+    CustomAttack,
+    VALID_CATEGORIES,
 )
 from toki.campaign import (
     CampaignConfig,
@@ -208,7 +223,19 @@ __all__ = [
     "JudgeConfig",
     "JudgeBase",
     "MockJudge",
+    "OllamaJudge",
+    "AnthropicJudge",
+    "OpenAIJudge",
+    "JudgeFactory",
     "JudgePipeline",
+    # Phase 14 — Remediation + Real Judges + Attack Library
+    "RemediationEngine",
+    "RemediationItem",
+    "RemediationReport",
+    "Severity",
+    "AttackLibrary",
+    "CustomAttack",
+    "VALID_CATEGORIES",
     "CampaignConfig",
     "CampaignResult",
     "RedTeamCampaign",

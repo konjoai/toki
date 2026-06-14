@@ -1250,6 +1250,101 @@ def api_consistency(body: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Phase 14 — Remediation + Custom Attack Library
+# ---------------------------------------------------------------------------
+
+_ATTACK_LIB_PATH = _HERE / "attacks.json"
+
+
+def api_remediate(body: dict) -> dict:
+    """POST /api/remediate — run judge on fresh prompts and return remediation report."""
+    from toki.generate import AdversarialGenerator
+    from toki.judge import JudgeConfig, JudgeCriteria, JudgeFactory, JudgePipeline
+    from toki.remediation import RemediationEngine
+
+    seed = int(body.get("seed", 42))
+    size = max(2, min(int(body.get("size", 10)), 50))
+    threshold = float(body.get("threshold", 0.6))
+
+    jb = max(1, size // 3)
+    inj = max(1, size // 3)
+    bnd = max(1, size - jb - inj)
+
+    gen = AdversarialGenerator(seed=seed)
+    prompts = gen.generate_all(jailbreak_count=jb, injection_count=inj, boundary_count=bnd)
+
+    config = JudgeConfig(
+        criteria=list(JudgeCriteria),
+        adversarial_threshold=threshold,
+        judge_name="mock",
+    )
+    judge = JudgeFactory.create("mock", config)
+
+    def _echo(p: str) -> str:
+        return f"[mock response to: {p}]"
+
+    pipeline = JudgePipeline(judge=judge, response_fn=_echo)
+    verdicts = pipeline.evaluate(prompts)
+    report = RemediationEngine().generate(verdicts)
+    return report.to_dict()
+
+
+def api_attacks_custom_get() -> dict:
+    """GET /api/attacks/custom — list all custom attacks in the library."""
+    from toki.attack_library import AttackLibrary
+
+    lib = AttackLibrary(_ATTACK_LIB_PATH)
+    attacks = lib.list_attacks()
+    return {
+        "stats": lib.stats(),
+        "attacks": [
+            {
+                "id": a.id,
+                "text": a.text,
+                "category": a.category,
+                "language": a.language,
+                "expected_refusal": a.expected_refusal,
+                "provenance": a.provenance,
+                "notes": a.notes,
+                "created": a.created,
+            }
+            for a in attacks
+        ],
+    }
+
+
+def api_attacks_custom_post(body: dict) -> dict:
+    """POST /api/attacks/custom — add a custom attack to the library."""
+    from toki.attack_library import AttackLibrary, CustomAttack
+
+    text = str(body.get("text", "")).strip()
+    category = str(body.get("category", "custom")).strip()
+    if not text:
+        return {"error": "text is required"}
+
+    try:
+        attack = CustomAttack(
+            text=text,
+            category=category,
+            language=str(body.get("language", "en")),
+            expected_refusal=bool(body.get("expected_refusal", True)),
+            provenance=str(body.get("provenance", "api")),
+            notes=str(body.get("notes", "")),
+        )
+    except ValueError as exc:
+        return {"error": str(exc)}
+
+    lib = AttackLibrary(_ATTACK_LIB_PATH)
+    added = lib.add(attack)
+    return {
+        "added": added,
+        "id": attack.id,
+        "duplicate": not added,
+        "total": len(lib),
+    }
+
+
+# ---------------------------------------------------------------------------
 # Query-string helpers — used by the GET dispatch and the export endpoint.
 # parse_qs returns dict[str, list[str]]; we flatten to scalars except where
 # repeated values are needed.
@@ -1321,6 +1416,10 @@ ROUTES = {
     ("GET",  "/api/safety_benchmark/diff"): api_safety_diff,
     ("POST", "/api/attacks/dedup_check"):   api_dedup_check,
     # Dynamic per-name / per-id routes handled inline in do_GET / do_POST / do_DELETE
+    # Phase 14 — remediation + custom attack library
+    ("POST", "/api/remediate"):           api_remediate,
+    ("GET",  "/api/attacks/custom"):      lambda body: api_attacks_custom_get(),
+    ("POST", "/api/attacks/custom"):      api_attacks_custom_post,
 }
 
 
