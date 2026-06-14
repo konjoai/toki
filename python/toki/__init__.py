@@ -1,7 +1,7 @@
 """Toki — adversarial fine-tuning lab for small LLMs."""
 from __future__ import annotations
 
-__version__ = "1.6.0"
+__version__ = "1.7.0"
 
 from toki.generate import AdversarialGenerator
 from toki.evaluate import (
@@ -11,6 +11,14 @@ from toki.evaluate import (
     RobustnessEvaluator,
     RuleScorer,
     ScoredResult,
+)
+from toki.safety_lora import (
+    LoRATrainResult,
+    SafetyLoRAConfig,
+    SploraAuditResult,
+    freeze_safety_adapter,
+    load_safety_subspace,
+    splora_audit,
 )
 from toki.dataset import AdversarialDataset
 from toki.experiment import TokiExperiment, ExperimentConfig
@@ -193,6 +201,13 @@ __all__ = [
     "RobustnessEvaluator",
     "RuleScorer",
     "ScoredResult",
+    # Sprint 17 — safety-subspace LoRA
+    "LoRATrainResult",
+    "SafetyLoRAConfig",
+    "SploraAuditResult",
+    "freeze_safety_adapter",
+    "load_safety_subspace",
+    "splora_audit",
     "AdversarialDataset",
     "TokiExperiment",
     "ExperimentConfig",

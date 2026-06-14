@@ -386,3 +386,47 @@ def test_evaluate_gguf_import_error(capsys):
     with patch.dict(sys.modules, {"llama_cpp": None}):
         with pytest.raises((ImportError, SystemExit)):
             main(["evaluate", "--evaluator", "gguf://nonexistent.gguf"])
+
+
+# ---------------------------------------------------------------------------
+# Sprint 17 — finetune subcommand CLI tests
+# ---------------------------------------------------------------------------
+
+
+def test_finetune_no_model_prints_config(capsys):
+    """finetune without --model prints config summary."""
+    main(["finetune"])
+    captured = capsys.readouterr()
+    assert "Safety-subspace LoRA" in captured.out
+    assert "safety_lora_rank" in captured.out
+
+
+def test_finetune_safety_lora_rank_reflected(capsys):
+    """--safety-lora-rank is reflected in printed config."""
+    main(["finetune", "--safety-lora-rank", "1"])
+    captured = capsys.readouterr()
+    assert "1" in captured.out
+
+
+def test_finetune_splora_audit_flag_reflected(capsys):
+    """--splora-audit flag shows as True in config output."""
+    main(["finetune", "--splora-audit"])
+    captured = capsys.readouterr()
+    assert "True" in captured.out
+
+
+def test_finetune_safety_subspace_path_reflected(capsys):
+    """--safety-subspace path is shown in config output."""
+    main(["finetune", "--safety-subspace", "/tmp/delta.pt"])
+    captured = capsys.readouterr()
+    assert "/tmp/delta.pt" in captured.out
+
+
+def test_finetune_model_requires_hf(capsys):
+    """--model without toki[hf] raises SystemExit with helpful message."""
+    import sys
+    from unittest.mock import patch
+
+    with patch.dict(sys.modules, {"torch": None, "peft": None, "transformers": None}):
+        with pytest.raises((ImportError, SystemExit)):
+            main(["finetune", "--model", "gpt2"])

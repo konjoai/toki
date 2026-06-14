@@ -6,18 +6,44 @@ The ``LoRAFinetuner.prepare_model`` method requires the ``toki[hf]`` extras.
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
+from typing import Optional
+
+from toki.safety_lora import LoRATrainResult, SploraAuditResult
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
 class LoRAConfig:
-    """Configuration for LoRA adapters."""
+    """Configuration for LoRA adapters.
+
+    Safety-subspace fields (Sprint 17 — arXiv 2501.01765 / 2506.18931 / 2507.17075):
+
+    safety_lora_rank:
+        Rank for the frozen safety adapter applied before task training.
+        0 = disabled (default). 1 = rank-1 MLP up_proj (arXiv 2507.17075).
+    safety_subspace_path:
+        Path to a pre-computed safety delta checkpoint. When set, loaded and
+        applied as a frozen shift before LoRA task training (SaLoRA).
+    enable_splora_audit:
+        When True, run E-DIEM safety-subspace audit after training completes.
+        Result is attached to the returned LoRATrainResult.
+    splora_threshold:
+        E-DIEM distance threshold for flagging unsafe weight updates (default 0.15).
+    """
 
     r: int = 8                          # LoRA rank
     lora_alpha: int = 32
     lora_dropout: float = 0.1
     target_modules: list[str] = field(default_factory=lambda: ["q_proj", "v_proj"])
     bias: str = "none"
+    # Safety-subspace fields (Sprint 17)
+    safety_lora_rank: int = 0
+    safety_subspace_path: Optional[str] = None
+    enable_splora_audit: bool = False
+    splora_threshold: float = 0.15
 
 
 @dataclass
@@ -104,10 +130,12 @@ class LoRAFinetuner:
         tokenizer,
         prompts=None,
         dataset=None,
-    ) -> dict:
-        """
-        Fine-tune model on adversarial prompts.
-        Returns dict with training_loss and num_steps.
+    ) -> LoRATrainResult:
+        """Fine-tune model on adversarial prompts.
+
+        Returns a LoRATrainResult containing training_loss, num_steps, and
+        an optional SploraAuditResult when enable_splora_audit is True.
+
         Requires: pip install toki[hf] (peft + datasets + transformers).
 
         Parameters
@@ -123,16 +151,28 @@ class LoRAFinetuner:
         """
         try:
             import torch
-            from transformers import Trainer, TrainingArguments, DataCollatorForLanguageModeling
+            from transformers import DataCollatorForLanguageModeling, Trainer, TrainingArguments
             from datasets import Dataset as HFDataset
-        except ImportError as e:
-            raise ImportError(f"Training requires toki[hf]: {e}") from e
+        except ImportError as exc:
+            raise ImportError(f"Training requires toki[hf]: {exc}") from exc
+
+        # Snapshot base state before any safety-subspace modifications,
+        # so the post-hoc E-DIEM audit compares against the true pre-training weights.
+        base_state: Optional[dict] = None
+        if self._lora.enable_splora_audit:
+            base_state = {k: v.data.clone() for k, v in model.named_parameters()}
+
+        # SaLoRA: apply frozen safety delta before task fine-tuning
+        if self._lora.safety_subspace_path is not None:
+            from toki.safety_lora import freeze_safety_adapter, load_safety_subspace
+            safety_delta = load_safety_subspace(self._lora.safety_subspace_path)
+            freeze_safety_adapter(model, safety_delta)
 
         # Collect text prompts
         if dataset is not None:
             texts = [p.text for p in dataset]
         elif prompts is not None:
-            texts = prompts
+            texts = list(prompts)
         else:
             raise ValueError("Provide either dataset or prompts")
 
@@ -170,11 +210,23 @@ class LoRAFinetuner:
             data_collator=DataCollatorForLanguageModeling(tokenizer, mlm=False),
         )
 
-        train_result = trainer.train()
-        return {
-            "training_loss": train_result.training_loss,
-            "num_steps": train_result.global_step,
-        }
+        train_output = trainer.train()
+
+        # SPLoRA: E-DIEM post-hoc audit
+        audit: Optional[SploraAuditResult] = None
+        if self._lora.enable_splora_audit and base_state is not None:
+            from toki.safety_lora import splora_audit
+            audit = splora_audit(
+                model,
+                base_state,
+                threshold=self._lora.splora_threshold,
+            )
+
+        return LoRATrainResult(
+            training_loss=train_output.training_loss,
+            num_steps=train_output.global_step,
+            splora_audit=audit,
+        )
 
     def config_summary(self) -> dict:
         """Return a JSON-serialisable summary of current configuration."""
@@ -184,6 +236,9 @@ class LoRAFinetuner:
                 "alpha": self._lora.lora_alpha,
                 "dropout": self._lora.lora_dropout,
                 "target_modules": self._lora.target_modules,
+                "safety_lora_rank": self._lora.safety_lora_rank,
+                "safety_subspace_path": self._lora.safety_subspace_path,
+                "enable_splora_audit": self._lora.enable_splora_audit,
             },
             "training": {
                 "epochs": self._training.num_epochs,
