@@ -6,6 +6,73 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.4.0] — 2026-06-14
+
+### Added — Phase 14 (Remediation Engine + Real LLM Judge Backends + Custom Attack Library)
+
+**`toki.remediation` — structured fix guidance for adversarial findings**
+- `Severity` — class constants: `CRITICAL`, `HIGH`, `MEDIUM`, `LOW` with `rank()` ordering
+- `RemediationItem` — frozen dataclass: `prompt_hash`, `attack_category`, `owasp_tag`,
+  `nist_measure`, `mitre_tactic`, `severity`, `fix_effort_hours`, `system_prompt_patch`,
+  `example_safe_response`, `example_unsafe_response`, `overall_score`
+- `RemediationReport` — `items`, `total_assessed`, `total_remediated`, `by_severity`,
+  `estimated_total_hours`; `to_json()` / `to_markdown()` / `to_html()`
+- `RemediationEngine.generate(verdicts, category_map=None)` — only processes
+  `adversarial_success=True` verdicts; category resolution order:
+  `category_map[prompt_hash]` → `verdict.metadata["category"]` → keyword inference;
+  items sorted by severity (critical first); never raises on malformed verdicts
+- Taxonomy covers: `jailbreak` (OWASP-LLM01 / NIST Measure 2.5 / MITRE AML.T0054),
+  `injection` (LLM01 / Measure 2.6 / AML.T0054.002), `edge_case` (LLM06 / Measure 2.2 /
+  AML.T0048), `boundary` (LLM04 / Measure 2.2 / AML.T0048), `indirect` (LLM01 /
+  Measure 2.6 / AML.T0054.002), `agentic` (LLM08 / Measure 2.7 / AML.T0051)
+
+**`toki.judge` (extension) — real LLM judge backends**
+- `OllamaJudge(JudgeBase)` — optional dep `httpx`; hits local Ollama `/api/chat`;
+  raises `ImportError("OllamaJudge requires httpx: pip install httpx")` when absent
+- `AnthropicJudge(JudgeBase)` — optional dep `anthropic` SDK; default model
+  `claude-haiku-4-5-20251001`; lazy client init; `api_key` kwarg overrides env var
+- `OpenAIJudge(JudgeBase)` — optional dep `openai` SDK; default model `gpt-4o-mini`;
+  graceful fallback when `choices` is empty
+- `_build_rubric_prompt(prompt, response, criteria)` — shared structured rubric builder
+- `_parse_scores(content, criteria, label)` — shared JSON parser; falls back to 0.5
+  per criterion on any parse error; clamps to [0.0, 1.0]
+- `JudgeFactory.create(name, config, **kwargs)` — registry: `"mock" | "ollama" |
+  "anthropic" | "openai"`; raises `ValueError` on unknown name
+
+**`toki.attack_library` — user-defined adversarial test cases**
+- `VALID_CATEGORIES` — frozenset of accepted category strings
+- `CustomAttack` dataclass — `text`, `category`, `language`, `expected_refusal`,
+  `provenance`, `notes`, `id` (SHA-256[:16] of text, auto-computed), `created`
+  (ISO-8601 UTC, auto-set); raises `ValueError` on empty text or invalid category
+- `AttackLibrary(path)` — JSON-backed persistent store; `add()` deduplicates on `id`,
+  returns `False` on duplicate; `remove(id)` / `get(id)` / `list_attacks(category=None)`
+  sorted by `created`; `stats()` → `{total, by_category}`; mutations immediately persist
+
+**CLI**
+- `python -m toki remediate [--dataset] [--count] [--seed] [--judge] [--threshold]
+  [--format json|html|markdown] [--output]`
+- `python -m toki attack-add --text TEXT --category CAT [--language] [--allow]
+  [--provenance] [--notes] [--library PATH]`
+- `python -m toki attack-list [--category] [--library PATH] [--json]`
+
+**Server**
+- `POST /api/remediate` — runs MockJudge on fresh prompts, returns `RemediationReport`
+- `GET  /api/attacks/custom` — list all custom attacks with stats
+- `POST /api/attacks/custom` — add a custom attack; returns `{added, id, duplicate, total}`
+
+**Tests**
+- 78 new tests: `test_remediation.py` (27), `test_judge_factory.py` (21),
+  `test_attack_library.py` (22), `test_main.py` (8 new CLI tests)
+- Total: 520/520 passing (442 prior + 78 new)
+
+**pyproject.toml + `toki.__init__`**
+- Version bumped to `1.4.0`
+- New exports: `OllamaJudge`, `AnthropicJudge`, `OpenAIJudge`, `JudgeFactory`,
+  `RemediationEngine`, `RemediationItem`, `RemediationReport`, `Severity`,
+  `AttackLibrary`, `CustomAttack`, `VALID_CATEGORIES`
+
+---
+
 ## [1.3.0] — 2026-05-19
 
 ### Added — Phase 13 (Indirect Injection + MCP Attack Battery)

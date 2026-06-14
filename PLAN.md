@@ -410,21 +410,46 @@ module extension + two CLI commands + coverage-map integration.
 
 ---
 
-## Future / Backlog
+## Phase 14 — Remediation Engine + Real LLM Judge Backends + Custom Attack Library (v1.4.0) [COMPLETE]
 
-- 🟠 **P2 remaining** — structured remediation reports (OWASP + NIST AI RMF +
-  MITRE ATLAS triple-tagging), custom attack library (POST /api/attacks,
-  community registry pull)
-- 🟡 **P3** — automated red-team campaign loop (AutoRedTeamer / SIRAJ
-  dual-agent architecture), compliance certification report
-  (OWASP Agentic Top 10 2026 / NIST AI RMF Measure 2.6 / ISO 42001),
-  continuous-monitoring mode
-- LoX safety subspace extrapolation as pre-step in `LoRAFinetuner`
-  (COLM 2025 — prevents fine-tuning from erasing alignment)
-- GGUF/GGML quantized model support (llama.cpp backend)
-- Web UI for interactive prompt generation and scoring
-- Real LLM judge implementations (OpenAI, Anthropic, local Ollama)
+**Ship Gate:** 520 Python tests passing. Zero failures. All CI gates green.
+
+### Deliverables
+- [x] `toki.remediation` — `RemediationEngine` maps `JudgeVerdict` → structured
+      `RemediationItem` with OWASP LLM Top 10 2025, NIST AI RMF Measure, MITRE ATLAS
+      tags. Severity (critical/high/medium/low) from overall score + fired criteria.
+      `RemediationReport.to_json()` / `.to_markdown()` / `.to_html()`. Category
+      resolution: `metadata["category"]` → keyword inference fallback.
+- [x] `toki.judge` (extension) — `OllamaJudge` (requires `httpx`), `AnthropicJudge`
+      (requires `anthropic` SDK), `OpenAIJudge` (requires `openai` SDK) — all
+      optional-dep, raise `ImportError` cleanly when absent. Shared
+      `_build_rubric_prompt` + `_parse_scores` helpers. `JudgeFactory.create(name,
+      config, **kwargs)` registry: `"mock" | "ollama" | "anthropic" | "openai"`.
+- [x] `toki.attack_library` — `AttackLibrary` JSON-backed persistent store, SHA-256
+      content-hash dedup, category validation via `VALID_CATEGORIES`. Full CRUD
+      (`add`, `remove`, `get`, `list_attacks`, `stats`), persistence across instances.
+- [x] CLI: `python -m toki remediate`, `attack-add`, `attack-list`
+- [x] Server: `POST /api/remediate`, `GET /api/attacks/custom`, `POST /api/attacks/custom`
+- [x] `toki.__init__` exports all new symbols; version bumped to `1.4.0`
+- [x] `pyproject.toml` version bumped to `1.4.0`
+- [x] 78 new Python tests (27 remediation + 21 judge factory + 22 attack library + 8 CLI)
+- [x] All 442 prior tests still passing (520 total)
 
 ---
 
-*Last updated: 2026-05-19 — v1.3.0 shipped.*
+## Future / Backlog
+
+- 🟠 **P2 remaining** — community attack registry pull (`GET /api/attacks/community`
+  signed manifest)
+- 🟡 **P3** — automated red-team campaign loop (AutoRedTeamer / SIRAJ dual-agent
+  architecture informed by arXiv 2508.04451), compliance certification report
+  (OWASP Agentic Top 10 2026 / NIST AI RMF Measure 2.6 / ISO 42001),
+  continuous-monitoring mode
+- SaLoRA / SPLoRA safety-subspace projection in `LoRAConfig` (arXiv 2501.01765 /
+  2506.18931 — prevents fine-tuning from erasing alignment)
+- GGUF/GGML quantized model support (llama.cpp backend)
+- Web UI for interactive prompt generation and scoring
+
+---
+
+*Last updated: 2026-06-14 — v1.4.0 shipped.*
