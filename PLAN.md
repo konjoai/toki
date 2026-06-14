@@ -437,10 +437,32 @@ module extension + two CLI commands + coverage-map integration.
 
 ---
 
+## Phase 15 — Community Attack Registry (v1.5.0) [COMPLETE]
+
+**Ship Gate:** 547 Python tests passing. Zero failures. All CI gates green. P2 backlog fully closed.
+
+### Deliverables
+- [x] `toki.community` — `CommunityRegistry` + `CommunityAttack` (frozen dataclass).
+      25 curated attacks across jailbreak / injection / edge_case / boundary / indirect /
+      agentic, each with OWASP LLM Top 10 2025 tag, severity, technique tags, provenance.
+- [x] Bundled manifest at `python/toki/data/community_registry.json` (SHA-256 verified
+      on load via `_verify_sha256`). No network required.
+- [x] `CommunityRegistry.filter(category, tag, severity)` — AND-logic; `stats()` summary.
+- [x] `get_registry()` — module-level cache; `reload=True` forces disk re-read.
+- [x] `load_remote(url, expected_sha256)` — pinned-SHA-256 remote pull via stdlib
+      `urllib`; raises `ValueError` on mismatch (strict) vs warning-only for bundled.
+- [x] CLI: `python -m toki attack-community [--category] [--tag] [--severity] [--json]`
+- [x] Server: `GET /api/attacks/community` (no filter) and `POST` (body filters)
+- [x] `toki.__init__` exports: `CommunityAttack`, `CommunityRegistry`,
+      `filter_community_attacks`, `get_registry`, `load_bundled`, `load_remote`
+- [x] `pyproject.toml` version bumped to `1.5.0`
+- [x] 27 new Python tests (23 community + 4 CLI) — all passing
+- [x] All 520 prior tests still passing (547 total)
+
+---
+
 ## Future / Backlog
 
-- 🟠 **P2 remaining** — community attack registry pull (`GET /api/attacks/community`
-  signed manifest)
 - 🟡 **P3** — automated red-team campaign loop (AutoRedTeamer / SIRAJ dual-agent
   architecture informed by arXiv 2508.04451), compliance certification report
   (OWASP Agentic Top 10 2026 / NIST AI RMF Measure 2.6 / ISO 42001),
@@ -452,4 +474,4 @@ module extension + two CLI commands + coverage-map integration.
 
 ---
 
-*Last updated: 2026-06-14 — v1.4.0 shipped.*
+*Last updated: 2026-06-14 — v1.5.0 shipped. P2 backlog fully closed.*
