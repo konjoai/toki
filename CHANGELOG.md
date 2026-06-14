@@ -6,6 +6,60 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.7.0] — 2026-06-14
+
+### Added — Phase 17 (Safety-Subspace LoRA — SaLoRA / SPLoRA)
+
+**`toki.safety_lora` — new module (zero mandatory deps)**
+- `SafetyLoRAConfig` — dataclass with four fields (all default to disabled):
+  `safety_lora_rank=0`, `safety_subspace_path=None`, `enable_splora_audit=False`,
+  `splora_threshold=0.15`
+- `SploraAuditResult` — frozen dataclass: `flagged_layers`, `max_ediem`, `passed`,
+  `threshold`; `to_dict()` serialization
+- `LoRATrainResult` — dataclass: `training_loss`, `num_steps`,
+  `splora_audit: SploraAuditResult | None` (replaces prior plain dict return)
+- `load_safety_subspace(path)` — load safety delta checkpoint via `torch.load`;
+  raises `ImportError("requires toki[hf]: pip install toki[hf]")` when torch absent;
+  raises `FileNotFoundError` when checkpoint missing (SaLoRA, arXiv 2501.01765)
+- `freeze_safety_adapter(model, delta)` — apply delta tensors to matching params
+  in-place and mark them `requires_grad_(False)`; complete no-op when delta is None
+  (no model modification, no import attempted)
+- `_ediem(base, ft)` — normalised Frobenius distance approximation for E-DIEM;
+  returns 0.0 when torch absent (safe no-op path)
+- `splora_audit(model, base_state, threshold)` — post-hoc E-DIEM safety-subspace
+  audit; compares fine-tuned params against pre-training snapshot; logs WARNING per
+  flagged layer; warns when no matching layers found (SPLoRA, arXiv 2506.18931)
+
+**`toki.finetune` (extended)**
+- `LoRAConfig` — four new safety fields with backward-compatible defaults
+- `LoRAFinetuner.train()` — returns `LoRATrainResult` (was `dict`); saves
+  `base_state` before training when `enable_splora_audit=True`; applies SaLoRA
+  freeze when `safety_subspace_path` is set; attaches `SploraAuditResult` when
+  audit is enabled; backward compat: all defaults → identical behaviour to v1.6.0
+- `config_summary()` — includes `safety_lora_rank`, `safety_subspace_path`,
+  `enable_splora_audit` in the `"lora"` section
+
+**CLI**
+- `python -m toki finetune` — prints configuration summary when `--model` omitted
+- `--safety-lora-rank INT` — frozen safety adapter rank (0=disabled)
+- `--safety-subspace PATH` — pre-computed safety delta checkpoint (SaLoRA)
+- `--splora-audit` — enable E-DIEM post-hoc audit (SPLoRA)
+- `--splora-threshold FLOAT` — E-DIEM flagging threshold (default: 0.15)
+
+**`toki.__init__`**
+- New exports: `LoRATrainResult`, `SafetyLoRAConfig`, `SploraAuditResult`,
+  `freeze_safety_adapter`, `load_safety_subspace`, `splora_audit`
+
+**`pyproject.toml`**
+- Version bumped to `1.7.0`
+
+**Tests**
+- 44 new tests: `test_safety_lora.py` (24), `test_finetune_extended.py` (15),
+  `test_main.py` (5 new CLI tests)
+- Total: 644/644 passing (600 prior + 44 new)
+
+---
+
 ## [1.6.0] — 2026-06-14
 
 ### Added — Phase 16 (Evaluator Reliability + GGUF Backend)

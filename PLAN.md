@@ -493,18 +493,50 @@ for P3-3 (SaLoRA/SPLoRA) and P3-1 (dual-agent red-team loop).
 
 ---
 
+## Phase 17 — Safety-Subspace LoRA (SaLoRA / SPLoRA) (v1.7.0) [COMPLETE]
+
+**Ship Gate:** 644 Python tests passing. Zero failures. All CI gates green.
+
+### Motivation
+LoRA fine-tuning — toki's core remediation mechanism — can silently erase safety
+alignment. Three complementary open-source 2025-2026 techniques now prevent this,
+all validated on 1B–3B models (toki's target range). Prerequisite for trustworthy
+P3-1 (dual-agent red-team loop) and P3-2 (compliance certification).
+
+### Deliverables
+- [x] `toki.safety_lora` — new module (zero mandatory deps; all torch behind try-import guards):
+      `SafetyLoRAConfig` (4 fields, all default to disabled) ·
+      `SploraAuditResult` (frozen: flagged_layers, max_ediem, passed, threshold) ·
+      `LoRATrainResult` (training_loss, num_steps, optional splora_audit) ·
+      `load_safety_subspace(path)` — load safety delta .pt (SaLoRA, arXiv 2501.01765) ·
+      `freeze_safety_adapter(model, delta)` — apply + freeze; no-op when None ·
+      `splora_audit(model, base_state, threshold)` — E-DIEM post-hoc audit
+      (SPLoRA, arXiv 2506.18931) ·
+      `_ediem(base, ft)` — normalised Frobenius distance approximation
+- [x] `toki.finetune` (extended) — `LoRAConfig` gains `safety_lora_rank`,
+      `safety_subspace_path`, `enable_splora_audit`, `splora_threshold` (all default
+      to disabled; fully backward compatible) · `LoRAFinetuner.train()` now returns
+      `LoRATrainResult`; hooks load+freeze before training, E-DIEM audit after ·
+      `config_summary()` includes safety fields
+- [x] CLI: `python -m toki finetune --safety-lora-rank --safety-subspace --splora-audit
+      --splora-threshold`
+- [x] `pyproject.toml` version bumped to `1.7.0`
+- [x] 44 new tests: `test_safety_lora.py` (24), `test_finetune_extended.py` (15),
+      `test_main.py` (5 CLI tests)
+- [x] All 600 prior tests still passing (644 total)
+
+---
+
 ## Future / Backlog
 
-- 🟡 **P3-3** — SaLoRA / SPLoRA safety-subspace projection in `LoRAConfig`
-  (arXiv 2501.01765 / 2506.18931); open-source implementations confirmed at
-  github.com/AoShuang92/SPLoRA and github.com/YihaoXue/lora-safety-reasoning
 - 🟡 **P3-2** — Compliance certification report (OWASP Agentic Top 10 ASI01-ASI10
-  / NIST AI RMF Measure 2.6 / ISO 42001) — taxonomy finalized December 2025
+  / NIST AI RMF Measure 2.6 / ISO 42001) — taxonomy finalized December 2025;
+  ExperimentResult already has most required fields
 - 🟡 **P3-1** — AutoRedTeamer / SIRAJ dual-agent red-team loop (unblocked by
-  evaluator reliability fix from Sprint 16)
+  Sprint 16 evaluator fix + Sprint 17 safety-subspace fine-tuning)
 - 🟡 **P3-5** — Continuous monitoring mode (depends on P3-2 compliance thresholds)
 - Web UI for interactive prompt generation and scoring
 
 ---
 
-*Last updated: 2026-06-14 — v1.6.0 shipped. Evaluator reliability fixed (arXiv 2603.06594).*
+*Last updated: 2026-06-14 — v1.7.0 shipped. Safety-subspace LoRA (SaLoRA/SPLoRA) complete.*
