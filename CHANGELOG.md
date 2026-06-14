@@ -6,6 +6,50 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.6.0] — 2026-06-14
+
+### Added — Phase 16 (Evaluator Reliability + GGUF Backend)
+
+**`toki.evaluate` — hybrid scoring layer (arXiv 2603.06594)**
+- `EvaluatorMode` — StrEnum: `RULE` | `LLM` | `HYBRID`
+- `RuleScorer` — compiled-regex safety scorer; zero external deps; adds
+  `ADVERSARIAL_SUCCESS_PATTERNS` (jailbreak-success signals: compliance phrases,
+  DAN persona markers, roleplay framing, numbered-step patterns)
+- `ScoredResult` — frozen dataclass: `score`, `rule_score`, `llm_score`,
+  `agreement` (|rule − llm|), `flagged` (agreement > threshold)
+- `HybridScorer(mode, llm_judge=None, agreement_threshold=0.2)` — ensemble scorer;
+  RULE-only, LLM-only, or mean of both; logs DEBUG when scorers disagree beyond
+  threshold, surfacing evaluator ambiguity before it becomes a load-bearing bug
+- `GGUFEvaluator(model_path, n_ctx=2048, n_threads=4)` — `llama-cpp-python` backend
+  for CPU-only GGUF quantized model inference; raises
+  `ImportError("GGUFEvaluator requires llama-cpp-python: pip install llama-cpp-python")`
+  when dep absent; falls back to `RuleScorer` on any parse error; probes model with
+  a 0–10 safety rubric and maps to [0, 1]
+- `RobustnessEvaluator` — `evaluator_mode: EvaluatorMode | None` and
+  `llm_judge: JudgeBase | None` optional params; activates `HybridScorer` when mode
+  is set; default `evaluator_mode=None` is fully backward compatible (same scoring
+  as v1.5.0 and earlier)
+
+**CLI**
+- `python -m toki evaluate --evaluator rule` — default; RULE mode
+- `python -m toki evaluate --evaluator hybrid` — HYBRID mode with `MockJudge`
+- `python -m toki evaluate --evaluator gguf://path/to/model.gguf` — GGUF backend
+
+**`pyproject.toml`**
+- `[gguf]` optional dep group: `llama-cpp-python>=0.2.0`
+- Version bumped to `1.6.0`
+
+**`toki.__init__`**
+- New exports: `EvaluatorMode`, `GGUFEvaluator`, `HybridScorer`, `RuleScorer`,
+  `ScoredResult`
+
+**Tests**
+- 53 new tests: `test_hybrid_scorer.py` (27), `test_gguf_evaluator.py` (15),
+  `test_evaluator_extended.py` (11), `test_main.py` (5 new CLI tests)
+- Total: 600/600 passing (547 prior + 53 new)
+
+---
+
 ## [1.4.0] — 2026-06-14
 
 ### Added — Phase 14 (Remediation Engine + Real LLM Judge Backends + Custom Attack Library)

@@ -461,17 +461,50 @@ module extension + two CLI commands + coverage-map integration.
 
 ---
 
+## Phase 16 — Evaluator Reliability + GGUF Backend (v1.6.0) [COMPLETE]
+
+**Ship Gate:** 600 Python tests passing. Zero failures. All CI gates green.
+
+### Motivation
+arXiv 2603.06594 (March 2026) demonstrates that single LLM judges degrade to
+near-random accuracy on adversarial samples under distribution shift. toki's prior
+`RobustnessEvaluator` was susceptible to this; Sprint 16 fixes it. Prerequisite
+for P3-3 (SaLoRA/SPLoRA) and P3-1 (dual-agent red-team loop).
+
+### Deliverables
+- [x] `EvaluatorMode` — StrEnum: `RULE` | `LLM` | `HYBRID`
+- [x] `RuleScorer` — compiled-regex safety scorer; zero external deps; includes
+      `ADVERSARIAL_SUCCESS_PATTERNS` (compliance/jailbreak-success signals)
+- [x] `ScoredResult` — frozen dataclass: `score`, `rule_score`, `llm_score`,
+      `agreement`, `flagged`
+- [x] `HybridScorer(mode, llm_judge, agreement_threshold)` — ensemble of
+      `RuleScorer` + optional `JudgeBase`; logs DEBUG when |rule − llm| > threshold
+- [x] `GGUFEvaluator(model_path, n_ctx, n_threads)` — `llama-cpp-python` backend
+      (optional dep); raises `ImportError` cleanly when absent; falls back to
+      `RuleScorer` on parse errors
+- [x] `RobustnessEvaluator` — extended with `evaluator_mode` + `llm_judge` optional
+      params; default behaviour (no mode) unchanged (backward compat)
+- [x] CLI: `python -m toki evaluate --evaluator rule|hybrid|gguf://path`
+- [x] `pyproject.toml` — `[gguf]` optional dep group (`llama-cpp-python>=0.2.0`);
+      version bumped to `1.6.0`
+- [x] 53 new tests across `test_hybrid_scorer.py` (27), `test_gguf_evaluator.py`
+      (15), `test_evaluator_extended.py` (11), `test_main.py` (5 CLI tests)
+- [x] All 547 prior tests still passing (600 total)
+
+---
+
 ## Future / Backlog
 
-- 🟡 **P3** — automated red-team campaign loop (AutoRedTeamer / SIRAJ dual-agent
-  architecture informed by arXiv 2508.04451), compliance certification report
-  (OWASP Agentic Top 10 2026 / NIST AI RMF Measure 2.6 / ISO 42001),
-  continuous-monitoring mode
-- SaLoRA / SPLoRA safety-subspace projection in `LoRAConfig` (arXiv 2501.01765 /
-  2506.18931 — prevents fine-tuning from erasing alignment)
-- GGUF/GGML quantized model support (llama.cpp backend)
+- 🟡 **P3-3** — SaLoRA / SPLoRA safety-subspace projection in `LoRAConfig`
+  (arXiv 2501.01765 / 2506.18931); open-source implementations confirmed at
+  github.com/AoShuang92/SPLoRA and github.com/YihaoXue/lora-safety-reasoning
+- 🟡 **P3-2** — Compliance certification report (OWASP Agentic Top 10 ASI01-ASI10
+  / NIST AI RMF Measure 2.6 / ISO 42001) — taxonomy finalized December 2025
+- 🟡 **P3-1** — AutoRedTeamer / SIRAJ dual-agent red-team loop (unblocked by
+  evaluator reliability fix from Sprint 16)
+- 🟡 **P3-5** — Continuous monitoring mode (depends on P3-2 compliance thresholds)
 - Web UI for interactive prompt generation and scoring
 
 ---
 
-*Last updated: 2026-06-14 — v1.5.0 shipped. P2 backlog fully closed.*
+*Last updated: 2026-06-14 — v1.6.0 shipped. Evaluator reliability fixed (arXiv 2603.06594).*
