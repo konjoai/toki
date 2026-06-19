@@ -6,6 +6,55 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.8.0] — 2026-06-19
+
+### Added — Phase 18 (Multi-Turn Jailbreak Engine — Crescendo / Echo Chamber)
+
+**`toki.multiturn` — new module (zero external deps)**
+- `MultiTurnStrategy` — StrEnum: `CRESCENDO` | `ECHO_CHAMBER`
+- `Turn` — frozen dataclass: `index`, `role`, `content`, optional assistant `score`
+- `Conversation` — ordered `Turn` list; `to_messages()` renders OpenAI-style
+  `{"role", "content"}` dicts, `transcript()` renders a scored, human-readable log
+- `MultiTurnConfig` — `name`, `strategy`, `goal`, `max_turns`, `seed`,
+  `success_threshold` (default 0.5), `output_dir`
+- `MultiTurnResult` — `turns`, `n_turns`, `success`, `success_turn`, `min_score`,
+  `final_score`, `transcript`; `to_json()`, `save()` (timestamped dir, no overwrite),
+  `load()` rehydrating typed `Turn`s
+- `Strategy` base + `CrescendoStrategy` (arXiv 2404.01833) / `EchoChamberStrategy`
+  (arXiv 2601.05742) — deterministic opener → escalation ladder → payload planning
+  producing exactly `n_turns` user messages; `get_strategy()` / `STRATEGIES` registry
+- `MultiTurnRunner.run(model_fn)` — drives a chat-style
+  `Callable[[list[dict[str, str]]], str]` through the planned escalation, scores
+  each assistant reply with the real `RuleScorer`, and stops early the first time a
+  reply drops below `success_threshold` (matching Crescendo's halt-on-compliance);
+  `run_multiturn(model_fn, config, save)` convenience wrapper
+- Built-in conversational baselines `conv_baseline_safe`, `conv_baseline_unsafe`,
+  `conv_baseline_crescendo` (benign until ≥3 user turns of benign history, then
+  capitulates) + `CONV_BASELINES` registry
+
+**`toki.coverage` (extended)**
+- `CATEGORY_AXIS` and `_DEFAULT_SEVERITY` gain `"multiturn"` (critical severity);
+  `_category_for` routes `multi`/`turn` categories to the new bucket
+
+**CLI**
+- `python -m toki multiturn` — `--strategy crescendo|echo_chamber`,
+  `--model safe|unsafe|crescendo`, `--goal`, `--max-turns`, `--seed`,
+  `--success-threshold`, `--output-dir`, `--json`; prints outcome + scored transcript
+
+**`toki.__init__`**
+- New exports: `CONV_BASELINES`, `Conversation`, `CrescendoStrategy`,
+  `EchoChamberStrategy`, `MultiTurnConfig`, `MultiTurnResult`, `MultiTurnRunner`,
+  `MultiTurnStrategy`, `Strategy`, `Turn`, `get_strategy`, `run_multiturn`
+
+**`pyproject.toml`**
+- Version bumped to `1.8.0`
+
+**Tests**
+- 31 new tests: `test_multiturn.py` (28), `test_main.py` (3 new CLI tests)
+- Total: 675/675 passing (644 prior + 31 new)
+
+---
+
 ## [1.7.0] — 2026-06-14
 
 ### Added — Phase 17 (Safety-Subspace LoRA — SaLoRA / SPLoRA)

@@ -527,6 +527,52 @@ P3-1 (dual-agent red-team loop) and P3-2 (compliance certification).
 
 ---
 
+## Phase 18 — Multi-Turn Jailbreak Engine (Crescendo) (v1.8.0) [COMPLETE]
+
+**Ship Gate:** 675 Python tests passing. Zero failures. Multi-turn escalation
+verified end-to-end against safe / unsafe / crescendo-vulnerable conversational
+baselines; deterministic per-seed planning; early-exit on first compliance.
+
+### Motivation
+Single-turn safety defenses do not transfer to multi-turn attacks. Crescendo
+(arXiv 2404.01833) reaches 98–100% ASR on frontier models by escalating a
+benign conversation across turns, each message referencing the model's prior
+replies; Echo Chamber (arXiv 2601.05742), GRAF (2506.17881), and AutoAdv
+(2507.01020) confirm multi-turn is the dominant 2026 vector. Every prior toki
+module operated on a single prompt → single response — this was the largest
+blind spot in the coverage map and a prerequisite for the P3-1 dual-agent loop.
+
+### Deliverables
+- [x] `toki.multiturn` — multi-turn jailbreak engine (zero external deps):
+  - `MultiTurnStrategy` — StrEnum: `CRESCENDO` | `ECHO_CHAMBER`
+  - `Turn` (frozen) — index, role, content, optional assistant `score`
+  - `Conversation` — turn list with `to_messages()` (OpenAI-style) + `transcript()`
+  - `MultiTurnConfig` — name, strategy, goal, max_turns, seed, success_threshold,
+    output_dir
+  - `MultiTurnResult` — turns, n_turns, success, success_turn, min_score,
+    final_score, transcript; `to_json()` / `save()` (timestamped, no overwrite)
+    / `load()` rehydrating typed `Turn`s
+  - `Strategy` base + `CrescendoStrategy` / `EchoChamberStrategy` — deterministic
+    opener → escalation ladder → payload planning, exactly `n_turns` messages
+  - `MultiTurnRunner.run(model_fn)` — drives a chat-style
+    `Callable[[list[dict]], str]` through the planned escalation, scores each
+    reply with the real `RuleScorer`, stops early on first success (Crescendo
+    behaviour); `run_multiturn()` convenience wrapper
+  - Built-in conversational baselines: `conv_baseline_safe`, `conv_baseline_unsafe`,
+    `conv_baseline_crescendo` (benign early, capitulates after benign history
+    builds up) — `CONV_BASELINES` registry
+- [x] `toki.coverage` — `CATEGORY_AXIS` + `_DEFAULT_SEVERITY` extended with
+      `"multiturn"` (critical); `_category_for` routes `multi`/`turn` categories
+- [x] CLI: `python -m toki multiturn --strategy crescendo|echo_chamber
+      --model safe|unsafe|crescendo --goal --max-turns --seed
+      --success-threshold --output-dir [--json]`
+- [x] `toki.__init__` exports all new public symbols; `__version__` → `1.8.0`
+- [x] `pyproject.toml` version bumped to `1.8.0`
+- [x] 31 new tests: `test_multiturn.py` (28) + `test_main.py` (3 CLI) — all passing
+- [x] All 644 Phase 1–17 tests still passing (675 total)
+
+---
+
 ## Future / Backlog
 
 - 🟡 **P3-2** — Compliance certification report (OWASP Agentic Top 10 ASI01-ASI10
@@ -539,4 +585,4 @@ P3-1 (dual-agent red-team loop) and P3-2 (compliance certification).
 
 ---
 
-*Last updated: 2026-06-14 — v1.7.0 shipped. Safety-subspace LoRA (SaLoRA/SPLoRA) complete.*
+*Last updated: 2026-06-19 — v1.8.0 shipped. Multi-turn jailbreak engine (Crescendo / Echo Chamber) complete.*
