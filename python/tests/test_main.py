@@ -430,3 +430,39 @@ def test_finetune_model_requires_hf(capsys):
     with patch.dict(sys.modules, {"torch": None, "peft": None, "transformers": None}):
         with pytest.raises((ImportError, SystemExit)):
             main(["finetune", "--model", "gpt2"])
+
+
+# ---------------------------------------------------------------------------
+# multiturn CLI (Sprint 18)
+# ---------------------------------------------------------------------------
+
+
+def test_multiturn_command_jailbroken(tmp_path, capsys):
+    main([
+        "multiturn", "--model", "crescendo", "--strategy", "crescendo",
+        "--max-turns", "5", "--output-dir", str(tmp_path),
+    ])
+    captured = capsys.readouterr()
+    assert "JAILBROKEN" in captured.out
+
+
+def test_multiturn_command_safe_holds(tmp_path, capsys):
+    main([
+        "multiturn", "--model", "safe", "--max-turns", "4",
+        "--output-dir", str(tmp_path),
+    ])
+    captured = capsys.readouterr()
+    assert "held" in captured.out
+
+
+def test_multiturn_command_json(tmp_path, capsys):
+    import json as _json
+
+    main([
+        "multiturn", "--model", "unsafe", "--json",
+        "--output-dir", str(tmp_path),
+    ])
+    captured = capsys.readouterr()
+    data = _json.loads(captured.out)
+    assert data["success"] is True
+    assert data["strategy"] == "crescendo"

@@ -1,7 +1,7 @@
 """Toki — adversarial fine-tuning lab for small LLMs."""
 from __future__ import annotations
 
-__version__ = "1.7.0"
+__version__ = "1.8.0"
 
 from toki.generate import AdversarialGenerator
 from toki.evaluate import (
@@ -192,6 +192,20 @@ from toki.agentic import (
     AgentAttackType,
     AgentVerdict,
 )
+from toki.multiturn import (
+    CONV_BASELINES,
+    Conversation,
+    CrescendoStrategy,
+    EchoChamberStrategy,
+    MultiTurnConfig,
+    MultiTurnResult,
+    MultiTurnRunner,
+    MultiTurnStrategy,
+    Strategy,
+    Turn,
+    get_strategy,
+    run_multiturn,
+)
 
 __all__ = [
     "AdversarialGenerator",
@@ -338,4 +352,17 @@ __all__ = [
     "TfidfIndex",
     "DedupVerdict",
     "DedupChecker",
+    # Phase 18 — multi-turn jailbreak engine
+    "CONV_BASELINES",
+    "Conversation",
+    "CrescendoStrategy",
+    "EchoChamberStrategy",
+    "MultiTurnConfig",
+    "MultiTurnResult",
+    "MultiTurnRunner",
+    "MultiTurnStrategy",
+    "Strategy",
+    "Turn",
+    "get_strategy",
+    "run_multiturn",
 ]
