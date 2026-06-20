@@ -1,7 +1,7 @@
 """Toki — adversarial fine-tuning lab for small LLMs."""
 from __future__ import annotations
 
-__version__ = "1.8.0"
+__version__ = "1.9.0"
 
 from toki.generate import AdversarialGenerator
 from toki.evaluate import (
@@ -206,6 +206,16 @@ from toki.multiturn import (
     get_strategy,
     run_multiturn,
 )
+from toki.redteam import (
+    DEFENDERS,
+    AttackAttempt,
+    Attacker,
+    DualAgentRedTeam,
+    RedTeamConfig,
+    RedTeamResult,
+    RoundReport,
+    run_redteam,
+)
 
 __all__ = [
     "AdversarialGenerator",
@@ -365,4 +375,13 @@ __all__ = [
     "Turn",
     "get_strategy",
     "run_multiturn",
+    # Phase 19 — dual-agent red-team loop
+    "DEFENDERS",
+    "AttackAttempt",
+    "Attacker",
+    "DualAgentRedTeam",
+    "RedTeamConfig",
+    "RedTeamResult",
+    "RoundReport",
+    "run_redteam",
 ]

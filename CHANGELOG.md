@@ -6,6 +6,51 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.9.0] — 2026-06-20
+
+### Added — Phase 19 (Dual-Agent Red-Team Loop — AutoRedTeamer / SIRAJ)
+
+**`toki.redteam` — new module (zero external deps)**
+- `RedTeamConfig` — `seed`, `max_rounds`, per-category seed counts,
+  `top_k_carry`, `variants_per_winner`, `success_threshold`, `target_asr`,
+  `convergence_window`, `output_dir`
+- `AttackAttempt` — frozen dataclass: `round_index`, `prompt`, `response`,
+  `score` (defender safety), `success`, `origin` (generated / mutation
+  strategy), `attack_score` (adversarial fitness, higher = better attack)
+- `RoundReport` — frozen dataclass: `n_attempts`, `n_success`, `asr`,
+  `mean_score`, `best_prompt`, `best_attack_score`
+- `RedTeamResult` — `rounds`, `total_attempts`, `best_asr`, `overall_success`,
+  `converged`, `stop_reason`, `top_attacks`; `to_json()`, `save()` (timestamped
+  dir, no overwrite), `load()` rehydrating typed `RoundReport`s
+- `Attacker` — `seed_prompts()` draws round-0 seeds from `AdversarialGenerator`;
+  `mutate_winners()` evolves carried winners via `StrategyMutator`
+- `DualAgentRedTeam.run(defender_fn)` — closed attacker/defender loop: proposes
+  attacks, scores each exchange with the real `RuleScorer` (or an optional
+  `JudgeBase` whose `adversarial_success` / `overall_score` then drive the
+  decision), carries the top-`k` winners into the next round's mutations, and
+  halts on target-ASR, ASR-plateau, or `max_rounds`; `run_redteam()` wrapper
+- Built-in defender baselines `defender_safe`, `defender_unsafe`,
+  `defender_keyword` (brittle trigger-word guard the attacker routes around) +
+  `DEFENDERS` registry
+
+**CLI**
+- `python -m toki redteam` — `--defender safe|unsafe|keyword`, `--rounds`,
+  `--target-asr`, `--seed`, `--output-dir`, `--json`; prints a per-round ASR
+  table plus the top adversarial attacks discovered
+
+**`toki.__init__`**
+- New exports: `DEFENDERS`, `AttackAttempt`, `Attacker`, `DualAgentRedTeam`,
+  `RedTeamConfig`, `RedTeamResult`, `RoundReport`, `run_redteam`
+
+**`pyproject.toml`**
+- Version bumped to `1.9.0`
+
+**Tests**
+- 23 new tests: `test_redteam.py` (20), `test_main.py` (3 new CLI tests)
+- Total: 698/698 passing (675 prior + 23 new)
+
+---
+
 ## [1.8.0] — 2026-06-19
 
 ### Added — Phase 18 (Multi-Turn Jailbreak Engine — Crescendo / Echo Chamber)

@@ -690,6 +690,24 @@ def build_parser() -> argparse.ArgumentParser:
                       dest="output_dir")
     p_mt.add_argument("--json", action="store_true")
 
+    # redteam (Sprint 19 — dual-agent red-team loop)
+    p_rt = sub.add_parser(
+        "redteam",
+        help="Run a dual-agent (attacker/defender) red-team loop until convergence",
+    )
+    p_rt.add_argument("--defender", default="keyword",
+                      choices=["safe", "unsafe", "keyword"],
+                      help="Built-in defender model under test (default: keyword)")
+    p_rt.add_argument("--rounds", type=int, default=5, dest="max_rounds",
+                      help="Maximum attacker/defender rounds (default: 5)")
+    p_rt.add_argument("--target-asr", type=float, default=0.8, dest="target_asr",
+                      help="Early-stop once a round reaches this attack-success rate")
+    p_rt.add_argument("--seed", type=int, default=42)
+    p_rt.add_argument("--name", default="dual_agent_redteam")
+    p_rt.add_argument("--output-dir", default="experiments/redteam",
+                      dest="output_dir")
+    p_rt.add_argument("--json", action="store_true")
+
     # finetune (Sprint 17 — safety-subspace LoRA)
     p_ft = sub.add_parser("finetune", help="Fine-tune with safety-subspace LoRA (requires toki[hf])")
     p_ft.add_argument("--model", type=str, default=None,
@@ -1013,6 +1031,39 @@ def cmd_finetune(args) -> None:
     print("Run ft.train(model, tokenizer, prompts=[...]) to fine-tune.")
 
 
+def cmd_redteam(args) -> None:
+    from toki.redteam import DEFENDERS, RedTeamConfig, run_redteam
+
+    cfg = RedTeamConfig(
+        name=args.name,
+        seed=args.seed,
+        max_rounds=args.max_rounds,
+        target_asr=args.target_asr,
+        output_dir=args.output_dir,
+    )
+    defender_fn = DEFENDERS[args.defender]
+    result = run_redteam(defender_fn, cfg, save=True)
+
+    if args.json:
+        print(result.to_json())
+        return
+
+    print(f"\n{'=' * 60}")
+    print(f"Dual-agent red-team: {result.name}   ({result.timestamp})")
+    print(f"{'=' * 60}")
+    print(f"  defender: {args.defender}   rounds run: {len(result.rounds)}")
+    print(f"  {'round':>5}  {'attempts':>8}  {'success':>7}  {'ASR':>6}  {'mean_safety':>11}")
+    for rep in result.rounds:
+        print(f"  {rep.round_index:>5}  {rep.n_attempts:>8}  {rep.n_success:>7}  "
+              f"{rep.asr:>5.0%}  {rep.mean_score:>11.3f}")
+    print(f"\n  best ASR: {result.best_asr:.0%}   stop: {result.stop_reason}   "
+          f"converged: {result.converged}")
+    if result.top_attacks:
+        print("\n  Top attacks:")
+        for a in result.top_attacks:
+            print(f"    [{a['origin']:>18}] atk={a['attack_score']:.2f}  {a['prompt'][:60]!r}")
+
+
 def cmd_multiturn(args) -> None:
     from toki.multiturn import (
         CONV_BASELINES, MultiTurnConfig, run_multiturn,
@@ -1126,6 +1177,8 @@ def main(argv=None) -> None:
         cmd_agentic(args)
     elif args.command == "multiturn":
         cmd_multiturn(args)
+    elif args.command == "redteam":
+        cmd_redteam(args)
     elif args.command == "remediate":
         cmd_remediate(args)
     elif args.command == "attack-community":
