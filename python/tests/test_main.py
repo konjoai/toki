@@ -466,3 +466,39 @@ def test_multiturn_command_json(tmp_path, capsys):
     data = _json.loads(captured.out)
     assert data["success"] is True
     assert data["strategy"] == "crescendo"
+
+
+# ---------------------------------------------------------------------------
+# redteam CLI (Sprint 19)
+# ---------------------------------------------------------------------------
+
+
+def test_redteam_command_unsafe_breached(tmp_path, capsys):
+    main([
+        "redteam", "--defender", "unsafe", "--rounds", "3",
+        "--output-dir", str(tmp_path),
+    ])
+    captured = capsys.readouterr()
+    assert "target_asr_reached" in captured.out
+
+
+def test_redteam_command_safe_holds(tmp_path, capsys):
+    main([
+        "redteam", "--defender", "safe", "--rounds", "4",
+        "--output-dir", str(tmp_path),
+    ])
+    captured = capsys.readouterr()
+    assert "best ASR: 0%" in captured.out
+
+
+def test_redteam_command_json(tmp_path, capsys):
+    import json as _json
+
+    main([
+        "redteam", "--defender", "keyword", "--json",
+        "--output-dir", str(tmp_path),
+    ])
+    captured = capsys.readouterr()
+    data = _json.loads(captured.out)
+    assert "rounds" in data
+    assert data["name"] == "dual_agent_redteam"

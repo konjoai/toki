@@ -573,16 +573,58 @@ blind spot in the coverage map and a prerequisite for the P3-1 dual-agent loop.
 
 ---
 
+## Phase 19 — Dual-Agent Red-Team Loop (AutoRedTeamer / SIRAJ) (v1.9.0) [COMPLETE]
+
+**Ship Gate:** 698 Python tests passing. Zero failures. Closed-loop attacker /
+defender campaign verified end-to-end against safe / unsafe / keyword-guard
+defenders; deterministic seeding; convergence on target-ASR and ASR-plateau;
+optional `JudgeBase` override.
+
+### Motivation
+P3-1, unblocked by the Sprint 16 evaluator fix, Sprint 17 safety-subspace
+fine-tuning, and the Sprint 18 multi-turn engine. AutoRedTeamer (arXiv
+2503.15754) and SIRAJ frame red-teaming as a closed loop: an attacker proposes
+attacks, a defender answers, and each round's most successful attacks inform
+the next generation — surfacing brittle guardrails that block obvious trigger
+words but fall to mutated phrasing. toki had all the pieces (generator, mutator,
+judge, evaluator) but no loop binding them into self-improving campaigns.
+
+### Deliverables
+- [x] `toki.redteam` — dual-agent loop (zero external deps):
+  - `RedTeamConfig` — seed, max_rounds, per-category seed counts, top_k_carry,
+    variants_per_winner, success_threshold, target_asr, convergence_window,
+    output_dir
+  - `AttackAttempt` (frozen) — round_index, prompt, response, safety score,
+    success, origin (generated / mutation strategy), adversarial `attack_score`
+  - `RoundReport` (frozen) — n_attempts, n_success, asr, mean_score, best prompt
+  - `RedTeamResult` — rounds, total_attempts, best_asr, overall_success,
+    converged, stop_reason, top_attacks; `to_json()` / `save()` (timestamped,
+    no overwrite) / `load()` rehydrating typed `RoundReport`s
+  - `Attacker` — `seed_prompts()` (round 0 via `AdversarialGenerator`) +
+    `mutate_winners()` (later rounds via `StrategyMutator` over carried winners)
+  - `DualAgentRedTeam.run(defender_fn)` — proposes → attacks → scores with the
+    real `RuleScorer` (or an optional `JudgeBase`) → carries top-k winners →
+    halts on target-ASR, ASR-plateau, or max_rounds; `run_redteam()` wrapper
+  - Built-in defenders: `safe`, `unsafe`, `keyword` (brittle trigger-word guard
+    the attacker routes around) + `DEFENDERS` registry
+- [x] CLI: `python -m toki redteam --defender safe|unsafe|keyword --rounds
+      --target-asr --seed --output-dir [--json]` — prints per-round ASR table +
+      top attacks
+- [x] `toki.__init__` exports all new public symbols; `__version__` → `1.9.0`
+- [x] `pyproject.toml` version bumped to `1.9.0`
+- [x] 23 new tests: `test_redteam.py` (20) + `test_main.py` (3 CLI) — all passing
+- [x] All 675 Phase 1–18 tests still passing (698 total)
+
+---
+
 ## Future / Backlog
 
 - 🟡 **P3-2** — Compliance certification report (OWASP Agentic Top 10 ASI01-ASI10
   / NIST AI RMF Measure 2.6 / ISO 42001) — taxonomy finalized December 2025;
   ExperimentResult already has most required fields
-- 🟡 **P3-1** — AutoRedTeamer / SIRAJ dual-agent red-team loop (unblocked by
-  Sprint 16 evaluator fix + Sprint 17 safety-subspace fine-tuning)
 - 🟡 **P3-5** — Continuous monitoring mode (depends on P3-2 compliance thresholds)
 - Web UI for interactive prompt generation and scoring
 
 ---
 
-*Last updated: 2026-06-19 — v1.8.0 shipped. Multi-turn jailbreak engine (Crescendo / Echo Chamber) complete.*
+*Last updated: 2026-06-20 — v1.9.0 shipped. Dual-agent red-team loop (AutoRedTeamer / SIRAJ) complete; P3-1 closed.*
