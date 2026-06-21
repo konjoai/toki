@@ -617,14 +617,50 @@ judge, evaluator) but no loop binding them into self-improving campaigns.
 
 ---
 
+## Phase 20 — Compliance Certification Report (P3-2) (v1.10.0) [COMPLETE]
+
+**Ship Gate:** 722 Python tests passing. Zero failures. Coverage assessed
+end-to-end against all four frameworks; full battery certifies OWASP Agentic
+Top 10 (8/8) with a deterministic SHA-256 evidence manifest.
+
+### Motivation
+P3-2 closes the loop from "you failed" to "here is your audit evidence."
+Regulated buyers (EU AI Act high-risk, ISO 42001 certification, NIST AI RMF
+adoption) need to map adversarial testing to formal controls. toki already
+carries OWASP/NIST/MITRE tags in the remediation module; this turns coverage
+into a signed, per-control certification with honest gap accounting.
+
+### Deliverables
+- [x] `toki.compliance` — certification module (zero external deps):
+  - `Framework` — StrEnum: `NIST_AI_RMF` | `OWASP_AGENTIC` | `ISO_42001` |
+    `EU_AI_ACT`; `Control` (frozen) maps each control to evidencing toki
+    categories; `get_catalog()` resolves a framework's control set
+  - Control catalogs: NIST AI RMF MEASURE controls, OWASP Agentic ASI01–ASI08,
+    ISO/IEC 42001 Annex A, EU AI Act Article 15
+  - `ControlStatus` (frozen) — per-control covered/partial/gap + evidence /
+    missing categories + test_count
+  - `ComplianceReport` — coverage_score, certified flag, controls, tamper-evident
+    `manifest_sha256`; `to_json()` / `to_markdown()` / `to_html()` (self-contained
+    dark-mode) / `save()` (timestamped JSON+HTML) / `load()`
+  - `assess_compliance(framework, category_counts, min_tests)` — core scorer;
+    `count_categories(prompts)` tally helper; `compliance_from_dataset()` wrapper
+- [x] CLI: `python -m toki compliance --framework nist_ai_rmf|owasp_agentic|
+      iso_42001|eu_ai_act --dataset --min-tests --seed --output-dir [--json]` —
+      assembles a full battery across all generators when no dataset is given
+- [x] `toki.__init__` exports all new public symbols; `__version__` → `1.10.0`
+- [x] `pyproject.toml` version bumped to `1.10.0`
+- [x] 24 new tests: `test_compliance.py` (21) + `test_main.py` (3 CLI) — all passing
+- [x] All 698 Phase 1–19 tests still passing (722 total)
+
+---
+
 ## Future / Backlog
 
-- 🟡 **P3-2** — Compliance certification report (OWASP Agentic Top 10 ASI01-ASI10
-  / NIST AI RMF Measure 2.6 / ISO 42001) — taxonomy finalized December 2025;
-  ExperimentResult already has most required fields
-- 🟡 **P3-5** — Continuous monitoring mode (depends on P3-2 compliance thresholds)
+- 🟡 **P3-5** — Continuous monitoring mode (`toki monitor --endpoint`): cron
+  probes + safety-regression alerts; wires the regression gate to live
+  endpoints. Now unblocked by P3-2 compliance thresholds.
 - Web UI for interactive prompt generation and scoring
 
 ---
 
-*Last updated: 2026-06-20 — v1.9.0 shipped. Dual-agent red-team loop (AutoRedTeamer / SIRAJ) complete; P3-1 closed.*
+*Last updated: 2026-06-21 — v1.10.0 shipped. Compliance certification report complete; P3-2 closed.*

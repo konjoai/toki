@@ -1,7 +1,7 @@
 """Toki — adversarial fine-tuning lab for small LLMs."""
 from __future__ import annotations
 
-__version__ = "1.9.0"
+__version__ = "1.10.0"
 
 from toki.generate import AdversarialGenerator
 from toki.evaluate import (
@@ -216,6 +216,16 @@ from toki.redteam import (
     RoundReport,
     run_redteam,
 )
+from toki.compliance import (
+    Control,
+    ComplianceReport,
+    ControlStatus,
+    Framework,
+    assess_compliance,
+    compliance_from_dataset,
+    count_categories,
+    get_catalog,
+)
 
 __all__ = [
     "AdversarialGenerator",
@@ -384,4 +394,13 @@ __all__ = [
     "RedTeamResult",
     "RoundReport",
     "run_redteam",
+    # Phase 20 — compliance certification (P3-2)
+    "Control",
+    "ComplianceReport",
+    "ControlStatus",
+    "Framework",
+    "assess_compliance",
+    "compliance_from_dataset",
+    "count_categories",
+    "get_catalog",
 ]
