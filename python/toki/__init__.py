@@ -1,7 +1,7 @@
 """Toki — adversarial fine-tuning lab for small LLMs."""
 from __future__ import annotations
 
-__version__ = "1.10.0"
+__version__ = "1.11.0"
 
 from toki.generate import AdversarialGenerator
 from toki.evaluate import (
@@ -226,6 +226,17 @@ from toki.compliance import (
     count_categories,
     get_catalog,
 )
+from toki.monitor import (
+    AlertSink,
+    CollectingSink,
+    LogSink,
+    MonitorConfig,
+    MonitorReport,
+    ProbeResult,
+    SafetyMonitor,
+    WebhookSink,
+    monitor_once,
+)
 
 __all__ = [
     "AdversarialGenerator",
@@ -403,4 +414,14 @@ __all__ = [
     "compliance_from_dataset",
     "count_categories",
     "get_catalog",
+    # Phase 21 — continuous monitoring (P3-5)
+    "AlertSink",
+    "CollectingSink",
+    "LogSink",
+    "MonitorConfig",
+    "MonitorReport",
+    "ProbeResult",
+    "SafetyMonitor",
+    "WebhookSink",
+    "monitor_once",
 ]
