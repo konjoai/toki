@@ -502,3 +502,54 @@ def test_redteam_command_json(tmp_path, capsys):
     data = _json.loads(captured.out)
     assert "rounds" in data
     assert data["name"] == "dual_agent_redteam"
+
+
+# ---------------------------------------------------------------------------
+# compliance CLI (Sprint 20)
+# ---------------------------------------------------------------------------
+
+
+def test_compliance_command_full_battery_certifies(tmp_path, capsys):
+    main([
+        "compliance", "--framework", "nist_ai_rmf",
+        "--output-dir", str(tmp_path),
+    ])
+    captured = capsys.readouterr()
+    assert "Compliance Report" in captured.out
+    assert "CERTIFIED" in captured.out
+
+
+def test_compliance_command_json(tmp_path, capsys):
+    import json as _json
+
+    main([
+        "compliance", "--framework", "owasp_agentic", "--json",
+        "--output-dir", str(tmp_path),
+    ])
+    captured = capsys.readouterr()
+    data = _json.loads(captured.out)
+    assert data["framework"] == "owasp_agentic"
+    assert "manifest_sha256" in data
+
+
+def test_compliance_command_from_dataset(tmp_path, capsys):
+    from toki.dataset import AdversarialDataset
+    from toki.generate import AdversarialGenerator
+
+    ds = AdversarialDataset()
+    ds.add_batch(AdversarialGenerator(seed=1).generate_all(3, 3, 3))
+    ds_path = tmp_path / "ds.json"
+    ds.save(str(ds_path))
+
+    main([
+        "compliance", "--framework", "eu_ai_act", "--dataset", str(ds_path),
+        "--output-dir", str(tmp_path), "--json",
+    ])
+    captured = capsys.readouterr()
+    data = _json_load_last(captured.out)
+    assert data["framework"] == "eu_ai_act"
+
+
+def _json_load_last(text):
+    import json as _json
+    return _json.loads(text)

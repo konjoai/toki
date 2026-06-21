@@ -708,6 +708,24 @@ def build_parser() -> argparse.ArgumentParser:
                       dest="output_dir")
     p_rt.add_argument("--json", action="store_true")
 
+    # compliance (Sprint 20 — compliance certification report)
+    p_co = sub.add_parser(
+        "compliance",
+        help="Generate a compliance certification report from a dataset's coverage",
+    )
+    p_co.add_argument("--framework", default="nist_ai_rmf",
+                      choices=["nist_ai_rmf", "owasp_agentic", "iso_42001", "eu_ai_act"],
+                      help="Control framework to assess against (default: nist_ai_rmf)")
+    p_co.add_argument("--dataset", default=None,
+                      help="Path to a saved AdversarialDataset JSON "
+                           "(default: generate a fresh full battery)")
+    p_co.add_argument("--min-tests", type=int, default=1, dest="min_tests",
+                      help="Tests a category needs to count as evidence (default: 1)")
+    p_co.add_argument("--seed", type=int, default=42)
+    p_co.add_argument("--output-dir", default="experiments/compliance",
+                      dest="output_dir")
+    p_co.add_argument("--json", action="store_true")
+
     # finetune (Sprint 17 — safety-subspace LoRA)
     p_ft = sub.add_parser("finetune", help="Fine-tune with safety-subspace LoRA (requires toki[hf])")
     p_ft.add_argument("--model", type=str, default=None,
@@ -1031,6 +1049,46 @@ def cmd_finetune(args) -> None:
     print("Run ft.train(model, tokenizer, prompts=[...]) to fine-tune.")
 
 
+def _full_battery_counts(seed: int) -> dict:
+    """Assemble category → test-count coverage across all toki generators."""
+    from toki.agentic import AgentAttackBattery
+    from toki.compliance import count_categories
+    from toki.generate import AdversarialGenerator
+    from toki.indirect import IndirectInjectionGenerator
+    from toki.multilingual import generate_battery
+
+    counts = count_categories(AdversarialGenerator(seed=seed).generate_all())
+    for p in generate_battery():
+        counts[p.category] = counts.get(p.category, 0) + 1
+    counts["indirect"] = counts.get("indirect", 0) + len(
+        IndirectInjectionGenerator().generate_all()
+    )
+    counts["agentic"] = counts.get("agentic", 0) + len(
+        AgentAttackBattery().generate_all()
+    )
+    # Representative multi-turn campaigns (Crescendo + Echo Chamber).
+    counts["multiturn"] = counts.get("multiturn", 0) + 2
+    return counts
+
+
+def cmd_compliance(args) -> None:
+    from toki.compliance import assess_compliance, count_categories
+
+    if args.dataset:
+        from toki.dataset import AdversarialDataset
+        counts = count_categories(AdversarialDataset.load(args.dataset))
+    else:
+        counts = _full_battery_counts(args.seed)
+
+    report = assess_compliance(args.framework, counts, min_tests=args.min_tests)
+    report.save(args.output_dir)
+
+    if args.json:
+        print(report.to_json())
+        return
+    print(report.to_markdown())
+
+
 def cmd_redteam(args) -> None:
     from toki.redteam import DEFENDERS, RedTeamConfig, run_redteam
 
@@ -1179,6 +1237,8 @@ def main(argv=None) -> None:
         cmd_multiturn(args)
     elif args.command == "redteam":
         cmd_redteam(args)
+    elif args.command == "compliance":
+        cmd_compliance(args)
     elif args.command == "remediate":
         cmd_remediate(args)
     elif args.command == "attack-community":

@@ -6,6 +6,46 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.10.0] — 2026-06-21
+
+### Added — Phase 20 (Compliance Certification Report — P3-2)
+
+**`toki.compliance` — new module (zero external deps)**
+- `Framework` — StrEnum: `NIST_AI_RMF` | `OWASP_AGENTIC` | `ISO_42001` |
+  `EU_AI_ACT`
+- `Control` — frozen dataclass mapping a control (id, title) to the toki attack
+  categories whose coverage evidences it; `get_catalog(framework)` resolver
+- Control catalogs: NIST AI RMF MEASURE controls (2.2/2.5/2.6/2.7/2.11), OWASP
+  Agentic Top 10 ASI01–ASI08, ISO/IEC 42001 Annex A (A.6.2.4/A.8.3/A.9.2), EU
+  AI Act Article 15 (accuracy / robustness / cybersecurity)
+- `ControlStatus` — frozen dataclass: per-control `covered`/`partial`/`gap`,
+  evidence + missing categories, aggregated `test_count`
+- `ComplianceReport` — `coverage_score` (partial = ½), `certified` flag,
+  per-control statuses, tamper-evident `manifest_sha256`; `to_json()`,
+  `to_markdown()`, `to_html()` (self-contained dark-mode), `save()` (timestamped
+  JSON + HTML, no overwrite), `load()` rehydrating typed `ControlStatus`es
+- `assess_compliance(framework, category_counts, min_tests=1)` — core assessor;
+  `count_categories(prompts)` tally helper; `compliance_from_dataset()` wrapper
+
+**CLI**
+- `python -m toki compliance` — `--framework`, `--dataset` (or a fresh full
+  battery across every generator), `--min-tests`, `--seed`, `--output-dir`,
+  `--json`; prints a per-control Markdown report with badge + manifest
+
+**`toki.__init__`**
+- New exports: `Control`, `ComplianceReport`, `ControlStatus`, `Framework`,
+  `assess_compliance`, `compliance_from_dataset`, `count_categories`,
+  `get_catalog`
+
+**`pyproject.toml`**
+- Version bumped to `1.10.0`
+
+**Tests**
+- 24 new tests: `test_compliance.py` (21), `test_main.py` (3 new CLI tests)
+- Total: 722/722 passing (698 prior + 24 new)
+
+---
+
 ## [1.9.0] — 2026-06-20
 
 ### Added — Phase 19 (Dual-Agent Red-Team Loop — AutoRedTeamer / SIRAJ)
