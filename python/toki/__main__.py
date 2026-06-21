@@ -726,6 +726,30 @@ def build_parser() -> argparse.ArgumentParser:
                       dest="output_dir")
     p_co.add_argument("--json", action="store_true")
 
+    # monitor (Sprint 21 — continuous monitoring mode)
+    p_mo = sub.add_parser(
+        "monitor",
+        help="Probe a model and alert on safety regression against a baseline",
+    )
+    p_mo.add_argument("--model", default="unsafe",
+                      choices=["safe", "unsafe", "mixed"],
+                      help="Endpoint under test (built-in baseline; default: unsafe)")
+    p_mo.add_argument("--baseline", default=None,
+                      help="Path to a saved Baseline JSON "
+                           "(default: establish one from the safe reference model)")
+    p_mo.add_argument("--reference", default="safe",
+                      choices=["safe", "unsafe", "mixed"],
+                      help="Reference model to baseline against when --baseline "
+                           "is omitted (default: safe)")
+    p_mo.add_argument("--tolerance", type=float, default=0.02,
+                      help="Per-category regression tolerance (default: 0.02)")
+    p_mo.add_argument("--webhook", default=None,
+                      help="Optional webhook URL to POST regression alerts to")
+    p_mo.add_argument("--seed", type=int, default=42)
+    p_mo.add_argument("--output-dir", default="experiments/monitor",
+                      dest="output_dir")
+    p_mo.add_argument("--json", action="store_true")
+
     # finetune (Sprint 17 — safety-subspace LoRA)
     p_ft = sub.add_parser("finetune", help="Fine-tune with safety-subspace LoRA (requires toki[hf])")
     p_ft.add_argument("--model", type=str, default=None,
@@ -1071,6 +1095,52 @@ def _full_battery_counts(seed: int) -> dict:
     return counts
 
 
+def cmd_monitor(args) -> None:
+    from toki.compare import BASELINES
+    from toki.monitor import (
+        LogSink, MonitorConfig, SafetyMonitor, WebhookSink,
+    )
+    from toki.regression import Baseline
+
+    cfg = MonitorConfig(
+        seed=args.seed,
+        tolerance=args.tolerance,
+        output_dir=args.output_dir,
+    )
+    sinks = [LogSink()]
+    if args.webhook:
+        sinks.append(WebhookSink(args.webhook))
+
+    monitor = SafetyMonitor(cfg, sinks=sinks)
+    if args.baseline:
+        monitor = SafetyMonitor(cfg, baseline=Baseline.load(args.baseline), sinks=sinks)
+    else:
+        monitor.establish_baseline(BASELINES[args.reference], meta={"ref": args.reference})
+
+    report = monitor.check(BASELINES[args.model])
+    report.save(args.output_dir)
+
+    if args.json:
+        print(report.to_json())
+        return
+
+    status = "\033[1mREGRESSION\033[0m" if report.regressed else "ok"
+    print(f"\n{'=' * 60}")
+    print(f"Safety monitor: {report.name}   ({report.timestamp})")
+    print(f"{'=' * 60}")
+    print(f"  model: {args.model}   baseline: "
+          f"{args.baseline or f'ref={args.reference}'}   tol={args.tolerance:.0%}")
+    print(f"  probe overall safety: {report.probe.overall:.4f}  "
+          f"(refusal={report.probe.refusal_rate:.0%} "
+          f"harmful={report.probe.harmful_rate:.0%} leak={report.probe.leak_rate:.0%})")
+    print(f"  overall Δ vs baseline: {report.overall_delta:+.4f}   status: {status}")
+    if report.regressed:
+        print(f"  worst: {report.worst_category} ({report.worst_delta:+.4f})")
+        print(f"  regressed categories: {', '.join(report.regressed_categories)}")
+        print(f"  alert dispatched to {len(sinks)} sink(s)"
+              + (f" incl. webhook {args.webhook}" if args.webhook else ""))
+
+
 def cmd_compliance(args) -> None:
     from toki.compliance import assess_compliance, count_categories
 
@@ -1239,6 +1309,8 @@ def main(argv=None) -> None:
         cmd_redteam(args)
     elif args.command == "compliance":
         cmd_compliance(args)
+    elif args.command == "monitor":
+        cmd_monitor(args)
     elif args.command == "remediate":
         cmd_remediate(args)
     elif args.command == "attack-community":

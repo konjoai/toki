@@ -654,13 +654,50 @@ into a signed, per-control certification with honest gap accounting.
 
 ---
 
-## Future / Backlog
+## Phase 21 — Continuous Monitoring Mode (P3-5) (v1.11.0) [COMPLETE]
 
-- 🟡 **P3-5** — Continuous monitoring mode (`toki monitor --endpoint`): cron
-  probes + safety-regression alerts; wires the regression gate to live
-  endpoints. Now unblocked by P3-2 compliance thresholds.
-- Web UI for interactive prompt generation and scoring
+**Ship Gate:** 741 Python tests passing. Zero failures. Probe → baseline-diff →
+alert verified end-to-end against safe / unsafe / mixed endpoints; deterministic
+per-seed probing; tolerance gating; pluggable alert sinks (offline webhook
+failure path covered).
+
+### Motivation
+P3-5, the last strategic backlog item, unblocked by the P3-2 compliance work.
+Safety drift happens in production, not at review time — a model behind an
+endpoint can regress after a deploy, a prompt-template change, or a dependency
+bump. This wires the Sprint 11 regression gate to a live target: probe on a
+cadence, diff against a frozen baseline, and alert the moment any category
+regresses beyond tolerance.
+
+### Deliverables
+- [x] `toki.monitor` — continuous monitoring (zero external deps):
+  - `AlertSink` ABC + `LogSink` (WARNING), `CollectingSink` (in-memory, tests),
+    `WebhookSink` (stdlib `urllib` POST; delivery failures logged, never raised)
+  - `MonitorConfig` — name, seed, per-category probe counts, tolerance, output_dir
+  - `ProbeResult` (frozen) — overall + per-category safety, refusal/harmful/leak
+    rates, total prompts
+  - `MonitorReport` — regressed flag, overall_delta, worst category/delta,
+    regressed categories, alerted flag; `to_json()` / `save()` (timestamped,
+    no overwrite) / `load()`
+  - `SafetyMonitor` — `probe()` runs the generator battery through the real
+    `RobustnessEvaluator`; `establish_baseline()` freezes a trusted run;
+    `check()` diffs via `toki.regression.compare` and dispatches alerts on
+    regression; `run(cycles)` does N synchronous probe cycles (cron drives
+    cadence); `monitor_once()` convenience wrapper
+- [x] CLI: `python -m toki monitor --model safe|unsafe|mixed --reference
+      --baseline --tolerance --webhook --seed --output-dir [--json]` — prints
+      probe summary + overall Δ + regressed categories + alert dispatch
+- [x] `toki.__init__` exports all new public symbols; `__version__` → `1.11.0`
+- [x] `pyproject.toml` version bumped to `1.11.0`
+- [x] 25 new tests: `test_monitor.py` (22) + `test_main.py` (3 CLI) — all passing
+- [x] All 722 Phase 1–20 tests still passing (741 total); module 100% covered
 
 ---
 
-*Last updated: 2026-06-21 — v1.10.0 shipped. Compliance certification report complete; P3-2 closed.*
+## Future / Backlog
+
+- Web UI for interactive prompt generation and scoring (P3 backlog now fully closed)
+
+---
+
+*Last updated: 2026-06-21 — v1.11.0 shipped. Continuous monitoring mode complete; P3-5 closed. Full P3 backlog cleared.*

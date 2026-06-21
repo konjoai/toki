@@ -6,6 +6,50 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.11.0] — 2026-06-21
+
+### Added — Phase 21 (Continuous Monitoring Mode — P3-5)
+
+**`toki.monitor` — new module (zero external deps)**
+- `AlertSink` ABC + concrete sinks: `LogSink` (WARNING-level), `CollectingSink`
+  (in-memory, for tests/batching), `WebhookSink` (stdlib `urllib` JSON POST;
+  delivery failures are logged, never raised — a flaky webhook can't crash the
+  loop)
+- `MonitorConfig` — `name`, `seed`, per-category probe counts, `tolerance`
+  (default 0.02), `output_dir`
+- `ProbeResult` — frozen dataclass: `overall` safety + `by_category`,
+  refusal/harmful/leak rates, `total_prompts`
+- `MonitorReport` — `regressed`, `overall_delta`, `worst_category`/`worst_delta`,
+  `regressed_categories`, `alerted`; `to_json()`, `save()` (timestamped dir, no
+  overwrite), `load()` rehydrating a typed `ProbeResult`
+- `SafetyMonitor` — `probe()` runs the `AdversarialGenerator` battery through the
+  real `RobustnessEvaluator`; `establish_baseline()` freezes a trusted run into a
+  `toki.regression.Baseline`; `check()` diffs the probe via
+  `toki.regression.compare` and dispatches alerts to every sink when any category
+  regresses beyond tolerance; `run(cycles)` performs N synchronous probe cycles
+  (cron drives cadence); `monitor_once()` convenience wrapper
+
+**CLI**
+- `python -m toki monitor` — `--model safe|unsafe|mixed`, `--reference`,
+  `--baseline`, `--tolerance`, `--webhook`, `--seed`, `--output-dir`, `--json`;
+  prints probe summary, overall Δ vs baseline, regressed categories, and alert
+  dispatch status
+
+**`toki.__init__`**
+- New exports: `AlertSink`, `CollectingSink`, `LogSink`, `MonitorConfig`,
+  `MonitorReport`, `ProbeResult`, `SafetyMonitor`, `WebhookSink`, `monitor_once`
+
+**`pyproject.toml`**
+- Version bumped to `1.11.0`
+
+**Tests**
+- 25 new tests: `test_monitor.py` (22), `test_main.py` (3 new CLI tests);
+  module 100% covered (webhook failure path exercised offline via a refused
+  localhost connection)
+- Total: 741/741 passing (722 prior + 19 net new in suite count)
+
+---
+
 ## [1.10.0] — 2026-06-21
 
 ### Added — Phase 20 (Compliance Certification Report — P3-2)
