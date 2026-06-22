@@ -1,7 +1,7 @@
 """Toki — adversarial fine-tuning lab for small LLMs."""
 from __future__ import annotations
 
-__version__ = "1.11.0"
+__version__ = "1.12.0"
 
 from toki.generate import AdversarialGenerator
 from toki.evaluate import (
@@ -237,6 +237,14 @@ from toki.monitor import (
     WebhookSink,
     monitor_once,
 )
+from toki.multiagent import (
+    OWASP_ASI_MAPPING,
+    MultiAgentAttackType,
+    MultiAgentBattery,
+    MultiAgentEvaluator,
+    MultiAgentScenario,
+    MultiAgentVerdict,
+)
 
 __all__ = [
     "AdversarialGenerator",
@@ -424,4 +432,11 @@ __all__ = [
     "SafetyMonitor",
     "WebhookSink",
     "monitor_once",
+    # Phase 22 — multi-agent / inter-agent attacks
+    "OWASP_ASI_MAPPING",
+    "MultiAgentAttackType",
+    "MultiAgentBattery",
+    "MultiAgentEvaluator",
+    "MultiAgentScenario",
+    "MultiAgentVerdict",
 ]

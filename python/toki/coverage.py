@@ -25,7 +25,7 @@ from toki.generate import AdversarialPrompt
 
 CATEGORY_AXIS: tuple[str, ...] = (
     "jailbreak", "injection", "edge_case", "boundary",
-    "encoding", "indirect", "agentic", "multiturn",
+    "encoding", "indirect", "agentic", "multiturn", "multiagent",
 )
 SEVERITY_AXIS: tuple[str, ...] = ("low", "medium", "high", "critical")
 LANGUAGE_AXIS: tuple[str, ...] = ("en", "es", "fr", "de", "other")
@@ -43,6 +43,7 @@ _DEFAULT_SEVERITY: dict[str, str] = {
     "indirect":   "critical",
     "agentic":    "critical",
     "multiturn":  "critical",
+    "multiagent": "critical",
 }
 
 
@@ -93,6 +94,7 @@ def _category_for(prompt: AdversarialPrompt) -> str:
     if "bound"  in cat:    return "boundary"
     if "encode" in cat:    return "encoding"
     if "indir"  in cat:    return "indirect"
+    if "multiagent" in cat or "multi_agent" in cat or "inter_agent" in cat:    return "multiagent"
     if "agent"  in cat:    return "agentic"
     if "multi"  in cat or "turn" in cat:    return "multiturn"
     return "edge_case"   # safe fallback

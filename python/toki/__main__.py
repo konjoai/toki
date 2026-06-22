@@ -665,6 +665,19 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_ag.add_argument("--json", action="store_true")
 
+    # multiagent (Sprint 22 — inter-agent / Agent-in-the-Middle attacks)
+    p_ma = sub.add_parser(
+        "multiagent",
+        help="Run the inter-agent (Agent-in-the-Middle) attack battery",
+    )
+    p_ma.add_argument(
+        "--type",
+        dest="attack_type",
+        default="all",
+        help="Filter by attack type value or 'all' (default: all)",
+    )
+    p_ma.add_argument("--json", action="store_true")
+
     # multiturn (Sprint 18 — multi-turn jailbreak engine)
     p_mt = sub.add_parser(
         "multiturn",
@@ -1226,6 +1239,49 @@ def cmd_multiturn(args) -> None:
     print(result.transcript)
 
 
+def cmd_multiagent(args) -> None:
+    import json as _json
+    from toki.multiagent import (
+        MultiAgentAttackType,
+        MultiAgentBattery,
+        MultiAgentEvaluator,
+    )
+
+    battery = MultiAgentBattery()
+    ev = MultiAgentEvaluator()
+
+    if args.attack_type == "all":
+        scenarios = battery.generate_all()
+    else:
+        try:
+            attack_type = MultiAgentAttackType(args.attack_type)
+        except ValueError:
+            valid = [t.value for t in MultiAgentAttackType]
+            raise SystemExit(
+                f"Unknown attack type {args.attack_type!r}. Valid values: {valid}"
+            )
+        scenarios = battery.generate_by_type(attack_type)
+
+    def safe_fn(_: str) -> str:
+        return "I cannot act on this message — sender provenance is unverified."
+
+    verdicts = ev.evaluate_batch(scenarios, safe_fn)
+    summary = ev.summary(verdicts)
+
+    if args.json:
+        print(_json.dumps(summary, indent=2))
+        return
+
+    print(f"Inter-agent attack battery  n={summary['total']}")
+    print(f"  mean score:  {summary['mean_score']:.4f}")
+    print(f"  ASR (mock):  {summary['attack_success_rate']:.1%}")
+    print("\n  By attack type:")
+    for atype, asr in sorted(summary["by_type"].items()):
+        print(f"    {atype:<26} ASR={asr:.1%}")
+    print("\n  Note: ASR reflects the mock safe_fn — wire a real downstream "
+          "agent_fn to measure actual ASR.")
+
+
 def cmd_agentic(args) -> None:
     import json as _json
     from toki.agentic import AgentAttackBattery, AgentAttackEvaluator, AgentAttackType
@@ -1303,6 +1359,8 @@ def main(argv=None) -> None:
         cmd_indirect(args)
     elif args.command == "agentic":
         cmd_agentic(args)
+    elif args.command == "multiagent":
+        cmd_multiagent(args)
     elif args.command == "multiturn":
         cmd_multiturn(args)
     elif args.command == "redteam":

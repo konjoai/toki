@@ -6,6 +6,51 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.12.0] — 2026-06-21
+
+### Added — Phase 22 (Multi-Agent / Inter-Agent Attack Battery — Agent-in-the-Middle)
+
+**`toki.multiagent` — new module (zero external deps)**
+- `MultiAgentAttackType` — 8 inter-agent attack categories: message tampering,
+  message interception, identity spoofing, instruction injection, goal-hijacking
+  relay, memory-relay poisoning, trust exploitation, capability escalation
+- `OWASP_ASI_MAPPING` — each attack type → OWASP Agentic Security Initiative
+  (ASI) 2026 category tag
+- `MultiAgentScenario` — frozen dataclass: `attack_type`, `topology` (agent
+  pipeline), `sender`, `original_message`, `tampered_message`, `description`,
+  `owasp_category`, deterministic SHA-256 `seed`
+- `MultiAgentVerdict` — frozen dataclass: `attack_succeeded`, `safe_handling`,
+  `score`, `to_dict()`
+- `MultiAgentBattery` — `generate_by_type()` / `generate_all()` produce 32
+  deterministic cases (4 per type) modelling an Agent-in-the-Middle on one
+  channel of an agent pipeline
+- `MultiAgentEvaluator` — `evaluate()` / `evaluate_batch(scenarios,
+  response_fn)` / `summary()`; heuristically flags whether the downstream agent
+  acted on tampered content or held to sender provenance / policy
+
+**`toki.coverage` (extended)**
+- `CATEGORY_AXIS` and `_DEFAULT_SEVERITY` gain `"multiagent"` (critical);
+  `_category_for` routes multi-agent categories without misrouting to `agentic`
+  or `multiturn`
+
+**CLI**
+- `python -m toki multiagent [--type all|<name>] [--json]` — runs the battery
+  against a mock safe downstream agent and prints per-type ASR
+
+**`toki.__init__`**
+- New exports: `OWASP_ASI_MAPPING`, `MultiAgentAttackType`, `MultiAgentBattery`,
+  `MultiAgentEvaluator`, `MultiAgentScenario`, `MultiAgentVerdict`
+
+**`pyproject.toml`**
+- Version bumped to `1.12.0`
+
+**Tests**
+- 19 new tests: `test_multiagent.py` (16), `test_main.py` (3 new CLI tests);
+  module 100% covered
+- Total: 763/763 passing (744 prior + 19 new)
+
+---
+
 ## [1.11.0] — 2026-06-21
 
 ### Added — Phase 21 (Continuous Monitoring Mode — P3-5)
