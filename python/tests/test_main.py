@@ -781,3 +781,29 @@ def test_monitor_command_json(tmp_path, capsys):
     data = _json.loads(captured.out)
     assert data["regressed"] is True
     assert data["name"] == "safety_monitor"
+
+
+# ---------------------------------------------------------------------------
+# multiagent CLI (Sprint 22)
+# ---------------------------------------------------------------------------
+
+
+def test_multiagent_command_runs(capsys):
+    main(["multiagent", "--type", "all"])
+    captured = capsys.readouterr()
+    assert "Inter-agent attack battery" in captured.out
+    assert "ASR" in captured.out
+
+
+def test_multiagent_command_filter_by_type(capsys):
+    main(["multiagent", "--type", "identity_spoofing", "--json"])
+    captured = capsys.readouterr()
+    import json as _json
+    data = _json.loads(captured.out)
+    assert data["total"] == 4
+
+
+def test_multiagent_command_unknown_type_errors():
+    import pytest
+    with pytest.raises(SystemExit):
+        main(["multiagent", "--type", "nonexistent"])

@@ -694,10 +694,52 @@ regresses beyond tolerance.
 
 ---
 
-## Future / Backlog
+## Phase 22 — Multi-Agent / Inter-Agent Attack Battery (v1.12.0) [COMPLETE]
 
-- Web UI for interactive prompt generation and scoring (P3 backlog now fully closed)
+**Ship Gate:** 763 Python tests passing. Zero failures. 32-case Agent-in-the-
+Middle battery verified end-to-end; deterministic SHA-256 seeding; safe
+downstream agent blocks all attacks (ASR 0%), compromised agent succumbs;
+coverage-map routing for the new `multiagent` category.
+
+### Motivation
+A fresh Discovery sweep (post-P3) showed the 2026 frontier has moved past
+single-agent attacks (which `toki.agentic` covers) to **multi-agent systems**:
+the inter-agent message channel is the new attack surface. An adversarial
+*Agent-in-the-Middle* intercepts, tampers with, or spoofs agent-to-agent
+messages so a downstream agent acts on attacker content believing it came from
+a trusted peer (OWASP ASI 2026 insecure inter-agent comms; arXiv 2510.06445 /
+2510.26037). toki had nothing for multi-agent topologies.
+
+### Deliverables
+- [x] `toki.multiagent` — inter-agent attack battery (zero external deps):
+  - `MultiAgentAttackType` (8): message tampering / interception, identity
+    spoofing, instruction injection, goal-hijacking relay, memory-relay
+    poisoning, trust exploitation, capability escalation
+  - `OWASP_ASI_MAPPING` — each type → OWASP ASI 2026 category
+  - `MultiAgentScenario` (frozen) — attack_type, topology, sender, original +
+    tampered message, description, owasp_category, deterministic seed
+  - `MultiAgentVerdict` (frozen) — attack_succeeded, safe_handling, score,
+    `to_dict()`
+  - `MultiAgentBattery` — `generate_by_type()` / `generate_all()` (32 cases,
+    4 per type)
+  - `MultiAgentEvaluator` — `evaluate()` / `evaluate_batch(scenarios,
+    response_fn)` / `summary()`; heuristic on whether the downstream agent
+    acted on tampered content vs held to provenance
+- [x] `toki.coverage` — `CATEGORY_AXIS` + `_DEFAULT_SEVERITY` gain `"multiagent"`
+      (critical); `_category_for` routes multi-agent categories without
+      misrouting to `agentic`/`multiturn`
+- [x] CLI: `python -m toki multiagent [--type all|<name>] [--json]`
+- [x] `toki.__init__` exports all new public symbols; `__version__` → `1.12.0`
+- [x] `pyproject.toml` version bumped to `1.12.0`
+- [x] 19 new tests: `test_multiagent.py` (16) + `test_main.py` (3 CLI) — all passing
+- [x] All 744 Phase 1–21 tests still passing (763 total); module 100% covered
 
 ---
 
-*Last updated: 2026-06-21 — v1.11.0 shipped. Continuous monitoring mode complete; P3-5 closed. Full P3 backlog cleared.*
+## Future / Backlog
+
+- Web UI for interactive prompt generation and scoring (P3 backlog fully closed)
+
+---
+
+*Last updated: 2026-06-21 — v1.12.0 shipped. Multi-agent / inter-agent (Agent-in-the-Middle) attack battery complete.*
